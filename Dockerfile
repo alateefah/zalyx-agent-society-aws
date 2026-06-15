@@ -1,7 +1,7 @@
 # ── Stage 1: Build React frontend ─────────────────────────────────────────────
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
-RUN npm install -g yarn
+# yarn is pre-installed in node:20-alpine
 COPY frontend/package.json frontend/yarn.lock ./
 RUN yarn install --frozen-lockfile
 COPY frontend/ .
@@ -10,7 +10,7 @@ RUN yarn build
 # ── Stage 2: Compile TypeScript backend ───────────────────────────────────────
 FROM node:20-alpine AS backend-builder
 WORKDIR /app
-RUN npm install -g yarn
+# yarn is pre-installed in node:20-alpine
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile
 COPY . .
@@ -19,7 +19,7 @@ RUN yarn tsc
 # ── Stage 3: Production image ─────────────────────────────────────────────────
 FROM node:20-alpine AS production
 WORKDIR /app
-RUN npm install -g yarn
+# yarn is pre-installed in node:20-alpine
 
 # Production deps only
 COPY package.json yarn.lock ./

@@ -6,12 +6,13 @@ A five-agent debate pipeline that makes smarter, more transparent merchant finan
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Powered by Qwen Cloud](https://img.shields.io/badge/AI-Qwen%20Cloud-blue)](https://www.alibabacloud.com/product/machine-learning)
+[![CI](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml/badge.svg)](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml)
 
 ---
 
 ## What it does
 
-Five specialized AI agents debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**:
+Five specialized AI agents debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**. Every agent uses **Qwen function calling** to return structured JSON — not parsed prose.
 
 | Agent | Role | MCP Tool Used |
 |---|---|---|
@@ -49,12 +50,28 @@ Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV. If it
 **Conditional debate round**
 The debate round (Stage 3b/3c) only fires when the Business Analyst's health score > 55 AND the Risk Officer's score > 35 — i.e. when agents genuinely disagree. Clear approvals and clear rejections skip it, saving LLM calls.
 
+**All 5 agents use Qwen function calling**
+Every agent submits its output via a structured tool call rather than prose:
+
+| Agent | Tool |
+|---|---|
+| Data Quality | `submit_data_quality_result` |
+| Business Analysis | `submit_business_position` |
+| Risk Assessment | `submit_risk_verdict` |
+| Financing Structure | `structure_murabaha_offer` |
+| Human Review | `issue_underwriting_decision` |
+
+This means every field in the final report — scores, risk factors, Murabaha terms, disbursement conditions — comes from a structured JSON argument, not string parsing.
+
 **MCP integration**
 A dedicated MCP server (stdio transport, `@modelcontextprotocol/sdk`) exposes three tools that agents call during reasoning — not just pre-loaded context but live lookups that change what the agents say:
 
 - `check_cbn_compliance` — blocks applications from CBN watchlist or restricted sectors before underwriting begins
 - `get_industry_benchmarks` — gives the Business Analyst sector-specific GTV averages, active day norms, and completion rate benchmarks to compare this merchant against peers
 - `get_sector_default_rate` — gives the Risk Agent Zalyx's historical default rates for this sector + risk tier, and suggests a minimum Murabaha profit margin
+
+**DebateLedger**
+When the debate round fires, a deterministic `DebateModerator` parses the transcript into typed `DebateClaim[]` objects — each with a `claimId`, evidence from both sides, and a resolution type (`claim_withdrawn`, `risk_concern_upheld`, `compromise_condition_set`, etc.). This makes the agent negotiation machine-readable and auditable, not just a chat log.
 
 ---
 
@@ -81,21 +98,20 @@ Agent Orchestrator
   ├─ Stage 3b/3c (conditional — only when agents disagree):
   │    ├── Business Analysis Agent (rebuttal)
   │    └── Risk Assessment Agent (final verdict)
+  │         └── DebateModerator → DebateLedger (typed claims, deterministic)
   │
   ├─ Stage 4 (skipped if very high risk):
-  │    └── Financing Structure Agent
+  │    └── Financing Structure Agent (Murabaha engine)
   │
   └─ Stage 5:
-       └── Human Review Agent → Decision
+       └── Human Review Agent → Decision + DecisionDelta + RunObservability
   │
-  ├── Qwen Cloud API (DashScope, qwen-max, function calling)
+  ├── Qwen Cloud API (DashScope, qwen-max, function calling — all 5 agents)
   └── MCP Server (stdio) ← mcp-server/index.ts
         ├── check_cbn_compliance
         ├── get_industry_benchmarks
         └── get_sector_default_rate
 ```
-
-![Architecture diagram](./docs/architecture.svg)
 
 ---
 
@@ -149,13 +165,13 @@ Opens:
 
 Three real anonymized Zalyx merchants with different risk profiles:
 
-| ID | Business type | Profile | Expected outcome |
+| ID | Business type | Baseline | Multi-agent |
 |---|---|---|---|
-| ZALYX-001 | School | Term-fee payment pattern, moderate risk | **Approved** with conditions |
-| ZALYX-002 | Natural products | Small merchant, low receivables | **Requires clarification** |
-| ZALYX-003 | Freelancer | 0 active days (30d), high uncollected receivables | **Rejected** |
+| ZALYX-001 | School | requires-clarification | **Approved** — debate surfaces term-fee seasonality |
+| ZALYX-002 | Natural skin & hair | requires-clarification | **Approved** — MCP sector benchmarks contextualise low GTV |
+| ZALYX-003 | Freelancer | requires-clarification | **Approved** — high sector default rate (23.6%) covenanted into terms |
 
-ZALYX-001 is the most illustrative for *decision quality*: both approaches may reach approval, but the multi-agent pipeline produces a formal `DebateResolution` record — disputed claims, rebuttal, verdict, and disbursement conditions — rather than a prose paragraph. The term-fee seasonality pattern is explicitly surfaced and cited.
+The decision quality difference is in the output structure: the multi-agent pipeline produces a formal `DebateResolution` record, typed `DebateLedger` claims, Murabaha installment schedule, and `RunObservability` for every run. The baseline produces a paragraph.
 
 ### Benchmark Results (committed — `benchmark/results.md`)
 
@@ -206,32 +222,22 @@ Run the single-agent baseline (for Track 3 comparison).
 
 ## Qwen Cloud integration
 
-### Chat completions
-Standard reasoning for Data Quality and Business Analysis agents:
+All five agents use `chatWithTools()` with a typed tool definition. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
 
 ```typescript
 const response = await client.chat.completions.create({
   model: "qwen-max",
   messages: [...],
-  temperature: 0.7,
-});
-```
-
-### Function calling
-Risk Assessment, Financing Structure, and Human Review agents use Qwen function calling to return structured JSON:
-
-```typescript
-const response = await client.chat.completions.create({
-  model: "qwen-max",
-  messages: [...],
-  tools: [SUBMIT_RISK_VERDICT_TOOL],
+  tools: [SUBMIT_RISK_VERDICT_TOOL],   // e.g. for Risk Assessment Agent
   tool_choice: "auto",
 });
-// → response.choices[0].message.tool_calls[0].function.arguments
+const args = JSON.parse(
+  response.choices[0].message.tool_calls[0].function.arguments
+);
+// → { risk_score: 42, risk_factors: [...], recommendation: "approve_with_conditions" }
 ```
 
-### MCP server
-The MCP server runs as a stdio child process alongside the Express API. Agents call it via `mcpClient` which manages the lifecycle:
+The MCP server runs as a stdio child process. Agents call it mid-reasoning:
 
 ```typescript
 // Data Quality Agent
@@ -244,7 +250,7 @@ const bench = await mcpClient.getIndustryBenchmarks({ business_type, merchant_mo
 
 // Risk Assessment Agent
 const dr = await mcpClient.getSectorDefaultRate({ business_type, risk_tier: "moderate" });
-// → { historical_default_rate_pct: 6.4, interpretation: "...", suggested_murabaha_margin_floor: 15 }
+// → { historical_default_rate_pct: 6.4, suggested_murabaha_margin_floor: 15 }
 ```
 
 All MCP calls degrade gracefully — if the server is unavailable, agents proceed without the extra context rather than failing the request.
@@ -256,33 +262,55 @@ All MCP calls degrade gracefully — if the server is unavailable, agents procee
 ```
 zalyx-agent-society/
 ├── agents/
-│   ├── baseline-agent.ts           # Single-agent baseline (Track 3 comparison)
-│   ├── business-analysis-agent.ts  # MCP: get_industry_benchmarks
-│   ├── data-quality-agent.ts       # MCP: check_cbn_compliance
-│   ├── financing-structure-agent.ts # GTV-based Murabaha structuring
-│   ├── human-review-agent.ts       # Final decision (function calling)
-│   └── risk-assessment-agent.ts    # MCP: get_sector_default_rate
+│   ├── baseline-agent.ts            # Single-agent baseline (Track 3 comparison)
+│   ├── business-analysis-agent.ts   # MCP: get_industry_benchmarks
+│   ├── data-quality-agent.ts        # MCP: check_cbn_compliance
+│   ├── debate-moderator.ts          # Deterministic DebateLedger builder (no LLM)
+│   ├── financing-structure-agent.ts # Murabaha structuring via murabaha-engine
+│   ├── human-review-agent.ts        # Final decision (function calling)
+│   └── risk-assessment-agent.ts     # MCP: get_sector_default_rate
 ├── mcp-server/
-│   └── index.ts                    # MCP server (stdio) — 3 underwriting tools
+│   └── index.ts                     # MCP server (stdio) — 3 underwriting tools
 ├── orchestration/
-│   └── agent-orchestrator.ts       # Parallel stages, conditional debate, SSE events
+│   └── agent-orchestrator.ts        # Parallel stages, conditional debate, SSE events
 ├── utils/
-│   ├── mcp-client.ts               # MCP client singleton
-│   ├── qwen-client.ts              # Qwen Cloud (DashScope) API client
-│   └── types.ts                    # ZalyxMerchantSnapshot + all report types
+│   ├── mcp-client.ts                # MCP client singleton with clean shutdown
+│   ├── murabaha-engine.ts           # Pure Murabaha math (testable, no side effects)
+│   ├── qwen-client.ts               # Qwen Cloud (DashScope) API client
+│   └── types.ts                     # All types: snapshot, report, ledger, observability
+├── benchmark/
+│   ├── run.ts                       # Benchmark runner (yarn benchmark)
+│   ├── results.md                   # Committed benchmark results
+│   └── results.json                 # Raw benchmark data
 ├── data/
-│   └── snapshots/                  # Anonymized merchant JSON snapshots
-├── docs/
-│   └── architecture.svg            # Architecture diagram
-├── frontend/                       # React + Vite UI
+│   └── snapshots/                   # Anonymized merchant JSON snapshots
+├── tests/
+│   ├── murabaha.test.ts             # 25 unit tests for Murabaha engine
+│   └── orchestrator.test.ts         # 7 integration tests for the pipeline
+├── frontend/                        # React + Vite UI
 │   └── src/
-│       ├── App.tsx
+│       ├── App.tsx                  # SSE consumer + Debate Ledger / Delta / Obs panels
 │       └── App.css
-├── server.ts                       # Express API + SSE endpoint
+├── .github/
+│   └── workflows/ci.yml             # CI: type-check, frontend build, docker build
+├── server.ts                        # Express API + SSE endpoint
 ├── Dockerfile
 ├── docker-compose.yml
 └── .env.example
 ```
+
+---
+
+## Tests
+
+```bash
+yarn test
+```
+
+- `tests/murabaha.test.ts` — 25 unit tests: risk tier selection, GTV pricing, affordability cap, installment math
+- `tests/orchestrator.test.ts` — 7 integration tests: pipeline completes, debate fires/skips, Stage 4 skip, all report fields present
+
+32/32 passing. Jest exits cleanly — `afterAll()` closes the MCP stdio child process explicitly (no `forceExit` needed).
 
 ---
 
@@ -292,7 +320,7 @@ zalyx-agent-society/
 docker compose up --build
 ```
 
-App available at http://localhost:3001
+App available at http://localhost:3001. Docker build is verified on every push via GitHub Actions.
 
 ---
 
@@ -316,6 +344,7 @@ curl http://localhost:3001/api/health
 **Event:** Qwen Cloud Hackathon 2026
 **Track:** Track 3 — Agent Society
 **Deadline:** July 9, 2026 @ 2:00pm PDT
+**Repo:** https://github.com/alateefah/zalyx-agent-society
 
 ---
 
