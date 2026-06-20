@@ -106,6 +106,7 @@ Write this for two audiences: the underwriting team (technical detail) and the m
     const result: HumanReviewResult = {
       finalRecommendation: finalDecision,
       approvalAmount,
+      approvedAmountNaira: finalDecision === "rejected" ? 0 : approvedAmountNaira,
       termsAdjustments: mandatoryConditions.length > 0
         ? mandatoryConditions.join("; ")
         : this.determineAdjustments(report, snapshot, finalDecision),

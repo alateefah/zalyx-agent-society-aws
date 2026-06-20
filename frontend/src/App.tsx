@@ -280,7 +280,7 @@ interface DecisionHistoryEntry {
 
 export default function App() {
   const [view, setView]           = useState<"form" | "processing" | "report">("form");
-  const [selectedDemo, setDemo]   = useState<string>("restaurant");
+  const [selectedDemo, setDemo]   = useState<string>("ZALYX-004");
   const [formMode, setFormMode]   = useState<"demo" | "custom">("demo");
   const [customJson, setJson]     = useState("");
   const [jsonError, setJsonError] = useState("");
@@ -400,6 +400,10 @@ export default function App() {
       const br = await baselineP;
       const bd: BaselineReport | null = br.ok ? await br.json() : null;
       if (!finalReport) throw new Error("No report received");
+      // Add custom merchant to the list if not already present
+      setMerchants(prev =>
+        prev.find(m => m.id === merchantData.id) ? prev : [...prev, merchantData]
+      );
       setReport(finalReport); setBaseline(bd); setView("report");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Something went wrong. Is the backend running?";
@@ -503,6 +507,9 @@ export default function App() {
                             key={m.id}
                             className={`demo-card${selectedDemo === m.id ? " selected" : ""}`}
                             onClick={() => handleDemoSelect(m)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleDemoSelect(m)}
                           >
                             <div className="demo-card-header">
                               <div className="demo-icon"><CardIcon size={14} /></div>

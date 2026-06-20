@@ -285,7 +285,7 @@ export async function saveUnderwritingDecision(report: UnderwritingReport): Prom
         merchantId: report.merchantId,
         requestId: report.observability.requestId,
         decision: report.humanReview.finalRecommendation,
-        approvedAmountNaira: report.humanReview.approvalAmount,
+        approvedAmountNaira: report.humanReview.approvedAmountNaira ?? 0,
         createdAt: new Date().toISOString(),
         report, // full JSON blob
       },
@@ -323,7 +323,7 @@ export async function getDecisionsForMerchant(
 export async function listDecisionsByType(
   decisionType: "approved" | "rejected" | "requires-clarification",
   limit = 50
-): Promise<{ merchantId: string; requestId: string; decision: string; createdAt: string; approvedAmountNaira?: string }[]> {
+): Promise<{ merchantId: string; requestId: string; decision: string; createdAt: string; approvedAmountNaira?: number }[]> {
   if (dynamoMockMode) return [];
 
   const result = await getDocClient().send(

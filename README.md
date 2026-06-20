@@ -2,9 +2,12 @@
 
 **Multi-Agent Merchant Underwriting System** — H0: Hack the Zero Stack · Track 2: Monetizable B2B App
 
-A five-agent debate pipeline that makes smarter, more transparent merchant financing decisions than any single AI call. Built on real anonymized data from [Zalyx](https://zalyx.com), a Nigerian fintech platform serving 700+ merchants.
+A five-agent debate pipeline that makes smarter, more transparent merchant financing decisions than any single AI call. Built on real anonymized data from Zalyx booking keeping platform (mobile app).
 
 **Stack:** Amazon Bedrock (Nova Pro) · Amazon DynamoDB · Vercel · MCP
+
+**Live demo:** [zalyx-agent-society-aws.vercel.app](https://zalyx-agent-society-aws.vercel.app)
+**API:** [zalyx-underwriting-env.eba-jp6apm5g.us-east-1.elasticbeanstalk.com](http://zalyx-underwriting-env.eba-jp6apm5g.us-east-1.elasticbeanstalk.com)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Powered by AWS](https://img.shields.io/badge/AI-Amazon%20Bedrock-orange)](https://aws.amazon.com/bedrock/)
