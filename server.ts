@@ -16,6 +16,7 @@ import {
   getMerchantSnapshot,
   listMerchants,
   saveUnderwritingDecision,
+  saveMerchantSnapshot,
   getDecisionsForMerchant,
   listDecisionsByType,
 } from "./utils/dynamo";
@@ -96,7 +97,8 @@ app.post("/api/underwrite/stream", async (req: Request, res: Response) => {
   try {
     console.log(`\n🌊 SSE underwriting: ${snapshot.businessName}`);
     const report = await orchestrator.runUnderwriting(snapshot, send);
-    // Persist to DynamoDB
+    // Persist merchant + decision to DynamoDB
+    await saveMerchantSnapshot(snapshot);
     await saveUnderwritingDecision(report);
     send({ type: "done", report });
     console.log(`✅ SSE complete: ${report.humanReview.finalRecommendation.toUpperCase()} — ${report.executionTime}`);
@@ -122,6 +124,7 @@ app.post("/api/underwrite", async (req: Request, res: Response) => {
 
     console.log(`\n🔄 Underwriting: ${snapshot.businessName}`);
     const report = await orchestrator.runUnderwriting(snapshot);
+    await saveMerchantSnapshot(snapshot);
     await saveUnderwritingDecision(report);
     console.log(`✅ Completed: ${report.humanReview.finalRecommendation.toUpperCase()} — ${report.executionTime}`);
 

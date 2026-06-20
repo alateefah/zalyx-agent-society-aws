@@ -270,6 +270,15 @@ export async function listMerchants(): Promise<ZalyxMerchantSnapshot[]> {
   return (result.Items as ZalyxMerchantSnapshot[]) ?? [];
 }
 
+/** Upsert a merchant snapshot — called when a custom merchant is submitted. */
+export async function saveMerchantSnapshot(snapshot: ZalyxMerchantSnapshot): Promise<void> {
+  if (dynamoMockMode) return;
+  await getDocClient().send(
+    new PutCommand({ TableName: MERCHANTS_TABLE, Item: { ...snapshot } })
+  );
+  console.log(`  💾 Saved merchant: ${snapshot.id} (${snapshot.businessName})`);
+}
+
 /** Persist a completed underwriting report. */
 export async function saveUnderwritingDecision(report: UnderwritingReport): Promise<void> {
   if (dynamoMockMode) {
