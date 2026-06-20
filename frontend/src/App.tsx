@@ -30,7 +30,7 @@ export default function App() {
     selectMerchant,
     addMerchant,
     refreshIsMock,
-  } = useMerchants(merchantIdParam);
+  } = useMerchants();
 
   const {
     view,
@@ -49,22 +49,33 @@ export default function App() {
   const [customJsonError, setCustomJsonError] = useState("");
   const [pendingCustom, setPendingCustom] = useState<ZalyxMerchantSnapshot | null>(null);
 
-  // Deep-link: load a specific report when the URL has /reports/:requestId
+  // URL → merchant selection sync.
+  // Runs whenever the URL merchantId changes OR the merchant list loads/updates.
+  // This is what makes deep links and browser back/forward work correctly.
   useEffect(() => {
-    if (!requestIdParam || !merchantIdParam || view !== "form") return;
+    if (!merchantIdParam) return;
+    const found = merchants.find((m) => m.id === merchantIdParam);
+    if (found) selectMerchant(found);
+  }, [merchantIdParam, merchants, selectMerchant]);
+
+  // URL → report view sync.
+  // Runs whenever requestId changes (deep link or click past decision).
+  // loadPreviousReport is stable (useCallback), so this is safe to include in deps.
+  useEffect(() => {
+    if (!requestIdParam || !merchantIdParam) return;
     fetchDecisionHistory(merchantIdParam)
       .then((entries) => {
         const entry = entries.find((e) => e.requestId === requestIdParam);
         if (entry) loadPreviousReport(entry.report);
       })
       .catch(() => undefined);
-  }, [requestIdParam, merchantIdParam]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [requestIdParam, merchantIdParam, loadPreviousReport]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
   const handleSelectMerchant = (merchant: ZalyxMerchantSnapshot) => {
-    selectMerchant(merchant);
-    navigate(`/applications/${merchant.id}`);
+    selectMerchant(merchant);                           // immediate state update
+    navigate(`/applications/${merchant.id}`);           // URL reflects selection
   };
 
   const handleCustomJsonChange = (raw: string, parsed: ZalyxMerchantSnapshot | null) => {
@@ -93,9 +104,11 @@ export default function App() {
   };
 
   const handleLoadPreviousReport = (previousReport: UnderwritingReport) => {
-    loadPreviousReport(previousReport);
     const reqId = previousReport.observability?.requestId;
+    // Navigate first — the URL-sync effect will call loadPreviousReport
     navigate(`/applications/${selectedMerchant.id}${reqId ? `/reports/${reqId}` : ""}`);
+    // Also call directly for instant feedback (no flicker waiting for effect)
+    loadPreviousReport(previousReport);
   };
 
   const runDisabled = formMode === "custom" && (!!customJsonError || !customJson.trim());

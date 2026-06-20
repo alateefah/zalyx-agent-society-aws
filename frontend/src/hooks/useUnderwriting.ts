@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { streamUnderwriting, fetchBaseline } from "../utils/api";
 import type { ZalyxMerchantSnapshot, UnderwritingReport, BaselineReport, AgentDebateMessage } from "../types";
 
@@ -46,20 +46,23 @@ export function useUnderwriting() {
     }
   };
 
-  const loadPreviousReport = (previousReport: UnderwritingReport, previousBaseline?: BaselineReport) => {
-    setReport(previousReport);
-    setBaseline(previousBaseline ?? null);
-    setLiveMessages(previousReport.debateTranscript ?? []);
-    setView("report");
-  };
+  const loadPreviousReport = useCallback(
+    (previousReport: UnderwritingReport, previousBaseline?: BaselineReport) => {
+      setReport(previousReport);
+      setBaseline(previousBaseline ?? null);
+      setLiveMessages(previousReport.debateTranscript ?? []);
+      setView("report");
+    },
+    []
+  );
 
-  const reset = () => {
+  const reset = useCallback(() => {
     setView("form");
     setReport(null);
     setBaseline(null);
     setLiveMessages([]);
     setError("");
-  };
+  }, []);
 
   return {
     view,
