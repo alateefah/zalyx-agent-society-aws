@@ -340,7 +340,7 @@ export function ReportView({ report, baseline, isMock, merchantId, onBack }: Pro
       </div>
 
       <div className="report-footer">
-        <button className="btn-secondary" onClick={onBack}><ArrowLeft size={13} /> New application</button>
+        <button className="btn-secondary" onClick={onBack}><ArrowLeft size={13} /> Back to merchant</button>
         <button className="btn-ghost" onClick={exportJson}><Download size={13} /> Export JSON</button>
       </div>
     </div>

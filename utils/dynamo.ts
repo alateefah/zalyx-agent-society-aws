@@ -295,6 +295,7 @@ export async function saveUnderwritingDecision(report: UnderwritingReport): Prom
         requestId: report.observability.requestId,
         decision: report.humanReview.finalRecommendation,
         approvedAmountNaira: report.humanReview.approvedAmountNaira ?? 0,
+        executionTime: report.executionTime,
         createdAt: new Date().toISOString(),
         report, // full JSON blob
       },
@@ -321,6 +322,64 @@ export async function getDecisionsForMerchant(
   );
 
   return ((result.Items ?? []) as any[]).map((item) => item.report as UnderwritingReport);
+}
+
+/** Decision summary row — no full report blob (cheap to fetch, cheap to transfer). */
+export interface DecisionSummaryRow {
+  merchantId: string;
+  requestId: string;
+  decision: string;
+  createdAt: string;
+  approvedAmountNaira?: number;
+  executionTime?: string;
+}
+
+/**
+ * Return decision summaries for a merchant — newest first.
+ * Uses a ProjectionExpression so the large `report` blob is never transferred.
+ */
+export async function getMerchantDecisionSummaries(
+  merchantId: string
+): Promise<DecisionSummaryRow[]> {
+  if (dynamoMockMode) return [];
+
+  const result = await getDocClient().send(
+    new QueryCommand({
+      TableName: DECISIONS_TABLE,
+      KeyConditionExpression: "merchantId = :mid",
+      ExpressionAttributeValues: { ":mid": merchantId },
+      ExpressionAttributeNames: { "#d": "decision" },
+      ProjectionExpression: "merchantId, requestId, #d, createdAt, approvedAmountNaira, executionTime",
+      ScanIndexForward: false,
+    })
+  );
+
+  return (result.Items ?? []) as DecisionSummaryRow[];
+}
+
+/**
+ * Fetch a single decision by composite key (merchantId + requestId).
+ * Uses GetCommand — O(1), no scan, no GSI.
+ * Returns the stored item (which includes the full `report` blob) or null if not found.
+ */
+export async function getDecisionById(
+  merchantId: string,
+  requestId: string
+): Promise<{ report: UnderwritingReport; createdAt: string } | null> {
+  if (dynamoMockMode) return null;
+
+  const result = await getDocClient().send(
+    new GetCommand({
+      TableName: DECISIONS_TABLE,
+      Key: { merchantId, requestId },
+    })
+  );
+
+  if (!result.Item) return null;
+  return {
+    report: result.Item.report as UnderwritingReport,
+    createdAt: result.Item.createdAt as string,
+  };
 }
 
 /**

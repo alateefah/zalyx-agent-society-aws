@@ -18,6 +18,8 @@ import {
   saveUnderwritingDecision,
   saveMerchantSnapshot,
   getDecisionsForMerchant,
+  getMerchantDecisionSummaries,
+  getDecisionById,
   listDecisionsByType,
 } from "./utils/dynamo";
 
@@ -70,6 +72,30 @@ app.get("/api/merchants/:id", async (req: Request, res: Response) => {
     res.json(snapshot);
   } catch (err: any) {
     res.status(500).json({ error: err?.message || "Failed to load merchant" });
+  }
+});
+
+/** Decision summaries for a merchant — lightweight, no report blob */
+app.get("/api/merchants/:merchantId/decisions", async (req: Request, res: Response) => {
+  try {
+    const summaries = await getMerchantDecisionSummaries(req.params.merchantId);
+    res.json(summaries);
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load decision summaries" });
+  }
+});
+
+/** Single decision by composite key — O(1) GetCommand, no scan */
+app.get("/api/merchants/:merchantId/decisions/:requestId", async (req: Request, res: Response) => {
+  try {
+    const item = await getDecisionById(req.params.merchantId, req.params.requestId);
+    if (!item) {
+      res.status(404).json({ error: `Decision ${req.params.requestId} not found` });
+      return;
+    }
+    res.json({ report: item.report, createdAt: item.createdAt });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || "Failed to load decision" });
   }
 });
 

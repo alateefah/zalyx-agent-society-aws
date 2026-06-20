@@ -4,6 +4,7 @@ import type {
   UnderwritingReport,
   BaselineReport,
   DecisionHistoryEntry,
+  DecisionSummary,
   AgentProgressEvent,
 } from "../types";
 
@@ -33,6 +34,34 @@ export async function fetchDecisionHistory(merchantId: string): Promise<Decision
     approvedAmountNaira: rep.humanReview?.approvedAmountNaira,
     report: rep,
   }));
+}
+
+/** Fetch a single merchant by ID from the dedicated endpoint. */
+export async function fetchMerchantById(merchantId: string): Promise<ZalyxMerchantSnapshot> {
+  const r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}`);
+  if (r.status === 404) throw new Error(`Merchant ${merchantId} not found`);
+  if (!r.ok) throw new Error("Failed to load merchant");
+  return r.json();
+}
+
+/** Fetch lightweight decision summaries — no report blob. */
+export async function fetchDecisionSummaries(merchantId: string): Promise<DecisionSummary[]> {
+  const r = await fetch(`${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}/decisions`);
+  if (!r.ok) throw new Error("Failed to load decisions");
+  return r.json();
+}
+
+/** Fetch a single full decision report via O(1) GetCommand. */
+export async function fetchDecisionById(
+  merchantId: string,
+  requestId: string
+): Promise<{ report: UnderwritingReport; createdAt: string }> {
+  const r = await fetch(
+    `${API_BASE}/api/merchants/${encodeURIComponent(merchantId)}/decisions/${encodeURIComponent(requestId)}`
+  );
+  if (r.status === 404) throw new Error("not_found");
+  if (!r.ok) throw new Error("Failed to load decision");
+  return r.json();
 }
 
 export async function fetchBaseline(snapshot: ZalyxMerchantSnapshot): Promise<BaselineReport | null> {

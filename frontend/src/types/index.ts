@@ -213,3 +213,13 @@ export interface DecisionHistoryEntry {
   approvedAmountNaira?: number;
   report: UnderwritingReport;
 }
+
+/** Lightweight summary returned by GET /api/merchants/:id/decisions — no report blob. */
+export interface DecisionSummary {
+  merchantId: string;
+  requestId: string;
+  decision: "approved" | "rejected" | "requires-clarification";
+  createdAt: string;
+  approvedAmountNaira?: number;
+  executionTime?: string;
+}
