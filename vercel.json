@@ -4,7 +4,7 @@
   "outputDirectory": "frontend/dist",
   "installCommand": "echo 'skip root install'",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "http://zalyx-underwriting.us-east-1.elasticbeanstalk.com/api/:path*" },
+    { "source": "/api/:path*", "destination": "http://zalyx-underwriting-env.eba-jp6apm5g.us-east-1.elasticbeanstalk.com/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
