@@ -5,7 +5,7 @@ import {
   BusinessAnalysisResult,
   RiskAssessmentResult,
 } from "../utils/types";
-import { qwenClient, STRUCTURE_MURABAHA_OFFER_TOOL } from "../utils/qwen-client";
+import { bedrockClient, STRUCTURE_MURABAHA_OFFER_TOOL } from "../utils/bedrock-client";
 import { computeMurabahaStructure } from "../utils/murabaha-engine";
 
 const fmt = (n: number) =>
@@ -66,19 +66,19 @@ As the structuring agent:
 Be specific. Reference the actual naira figures.
 `;
 
-    // Function calling — Qwen invokes structure_murabaha_offer with precise terms
-    const response = await qwenClient.chatWithTools(
+    // Function calling — Bedrock invokes structure_murabaha_offer with precise terms
+    const response = await bedrockClient.chatWithTools(
       [{ role: "user", content: `Context:\n${JSON.stringify(snapshot, null, 2)}\n\nAnalysis request:\n${prompt}` }],
       [STRUCTURE_MURABAHA_OFFER_TOOL],
       this.agentName
     );
 
-    // Prefer Qwen's structured output; fall back to policy engine values
+    // Prefer Bedrock's structured output; fall back to policy engine values
     const tc = response.toolCall?.name === "structure_murabaha_offer"
       ? (response.toolCall.arguments as any)
       : null;
 
-    // If Qwen returned tool values, recompute Murabaha split from its principal
+    // If Bedrock returned tool values, recompute Murabaha split from its principal
     const salePriceNaira: number = tc?.principal_naira
       ? Math.round(tc.principal_naira * (1 + (tc.fixed_fee_pct ?? structure.profitMarginPct) / 100))
       : structure.salePriceNaira;

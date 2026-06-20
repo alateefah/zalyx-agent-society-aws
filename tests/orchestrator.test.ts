@@ -5,7 +5,7 @@
  *   - Business health score > 55  AND  risk score > 35 → debate fires
  *   - Either condition not met → debate skipped (saves LLM calls)
  *
- * Uses mocked agents so tests run without a Qwen API key.
+ * Uses mocked agents so tests run without AWS credentials.
  */
 
 import { AgentOrchestrator } from "../orchestration/agent-orchestrator";
@@ -78,7 +78,7 @@ async function collectEvents(orchestrator: AgentOrchestrator, snapshot: ZalyxMer
 describe("AgentOrchestrator — debate trigger logic", () => {
   /**
    * The debate fires when: businessHealthScore > 55 AND riskScore > 35.
-   * In mock mode, the qwenClient returns fixed values. We test the outcome
+   * In mock mode, the bedrockClient returns fixed values. We test the outcome
    * based on what the mock agents return.
    */
 

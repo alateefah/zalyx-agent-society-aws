@@ -3,7 +3,7 @@ import {
   BusinessAnalysisResult,
   AgentDebateMessage,
 } from "../utils/types";
-import { qwenClient, SUBMIT_BUSINESS_POSITION_TOOL } from "../utils/qwen-client";
+import { bedrockClient, SUBMIT_BUSINESS_POSITION_TOOL } from "../utils/bedrock-client";
 import { mcpClient } from "../utils/mcp-client";
 
 const fmt = (n: number) =>
@@ -80,8 +80,8 @@ As a business analyst:
 Speak with domain expertise. Be specific about the numbers.
 `;
 
-    // Function calling — Qwen returns structured business position
-    const response = await qwenClient.chatWithTools(
+    // Function calling — Bedrock returns structured business position
+    const response = await bedrockClient.chatWithTools(
       [{ role: "user", content: `Merchant data:\n${JSON.stringify(snapshot, null, 2)}\n\nAnalysis request:\n${prompt}` }],
       [SUBMIT_BUSINESS_POSITION_TOOL],
       this.agentName
@@ -151,7 +151,7 @@ Respond directly and specifically:
 Max 150 words. This is an active debate — be direct.
 `;
 
-    const response = await qwenClient.analyzeWithContext(
+    const response = await bedrockClient.analyzeWithContext(
       prompt,
       JSON.stringify({ snapshot, initialAnalysis: initialResult }, null, 2),
       "Business Analysis Agent (Rebuttal)"

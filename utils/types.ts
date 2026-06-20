@@ -220,19 +220,19 @@ export interface DecisionDelta {
 export interface AgentTiming {
   agentName: string;
   durationMs: number;
-  qwenCallCount: number;  // Number of Qwen API calls this agent made
-  mcpCallCount: number;   // Number of MCP tool calls this agent made
+  bedrockCallCount: number;  // Number of Bedrock API calls this agent made
+  mcpCallCount: number;      // Number of MCP tool calls this agent made
 }
 
 /**
  * Observability metadata attached to every underwriting run.
  */
 export interface RunObservability {
-  requestId: string;            // UUID for this underwriting run
-  mockMode: boolean;            // True if running without a Qwen API key
-  model: string;                // e.g. "qwen-max"
-  totalQwenCalls: number;       // Across all agents
-  totalMcpCalls: number;        // Across all agents
+  requestId: string;              // UUID for this underwriting run
+  mockMode: boolean;              // True if running without AWS credentials
+  model: string;                  // e.g. "amazon.nova-pro-v1:0"
+  totalBedrockCalls: number;      // Across all agents
+  totalMcpCalls: number;          // Across all agents
   agentTimings: AgentTiming[];  // Per-stage breakdown
   parallelStages: string[];     // Stages that ran in parallel (1+2)
   debateRoundFired: boolean;

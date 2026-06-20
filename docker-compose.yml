@@ -7,9 +7,10 @@ services:
     ports:
       - "3001:3001"
     environment:
-      - QWEN_API_KEY=${QWEN_API_KEY}
-      - QWEN_MODEL=${QWEN_MODEL:-qwen-max}
-      - QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-amazon.nova-pro-v1:0}
       - PORT=3001
       - NODE_ENV=production
     restart: unless-stopped

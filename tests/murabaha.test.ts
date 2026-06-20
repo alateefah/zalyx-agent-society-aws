@@ -4,7 +4,7 @@
  * Tests the pure financing math: GTV-based sale price, risk tier selection,
  * affordability cap, Murabaha profit split, and floor enforcement.
  *
- * These tests have no Qwen/MCP dependencies — they verify the policy engine
+ * These tests have no Bedrock/MCP dependencies — they verify the policy engine
  * in isolation, which is what matters for compliance and auditability.
  */
 

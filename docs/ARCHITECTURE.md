@@ -1,178 +1,203 @@
-# Zalyx Agent Society - Architecture
+# Zalyx Agent Society — Architecture
+
+**H0: Hack the Zero Stack · Track 2: Monetizable B2B App**
+
+See the visual diagram: [`/architecture.svg`](../architecture.svg)
+
+---
 
 ## Overview
 
-Zalyx Agent Society implements a multi-agent underwriting system where specialized AI agents collaborate, debate, and negotiate financing decisions for merchant lending.
+Zalyx Agent Society is a five-agent underwriting system that debates every merchant financing application. Built on Amazon Bedrock (Nova Pro), Amazon DynamoDB, and Vercel.
 
-## System Architecture
+The core insight: a single LLM call makes risk decisions the same way a single analyst does — it sees what it's primed to see. Five specialized agents with different mandates, forced to challenge each other, consistently surface what one agent misses.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| AI | Amazon Bedrock (amazon.nova-pro-v1:0) · Converse API · Tool Use |
+| Database | Amazon DynamoDB · 2 tables · PAY_PER_REQUEST · decision-index GSI |
+| MCP | @modelcontextprotocol/sdk v1.29 · stdio transport · 3 tools |
+| Backend | Node.js · Express · TypeScript |
+| Frontend | React + Vite → deployed on Vercel |
+
+---
+
+## System Flow
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Qwen Cloud API                    │
-│  (OpenAI-compatible, function calling enabled)     │
-└─────────────────────────────────────────────────────┘
-                          ↑
-        ┌─────────────────┴─────────────────┐
-        ↓                                   ↓
-    [Agent Orchestrator]            [LangGraph Workflow]
-        (Controls flow)               (State management)
-        ↑                                   ↑
-        └─────────────────┬─────────────────┘
-                          ↓
-          ┌───────────────────────────────┐
-          │    Specialized Agents:        │
-          ├───────────────────────────────┤
-          │ • Data Quality Agent          │
-          │ • Business Analysis Agent     │
-          │ • Risk Assessment Agent       │
-          │ • Financing Structure Agent   │
-          │ • Human Review Agent          │
-          └───────────────────────────────┘
-                          ↑
-              ┌───────────────────────┐
-              │   Merchant Data       │
-              │   (Anonymized)        │
-              └───────────────────────┘
-                          ↓
-              ┌───────────────────────┐
-              │   Output Report:      │
-              │ • Scores              │
-              │ • Debate Transcript   │
-              │ • Final Recommendation│
-              └───────────────────────┘
+[Vercel UI]  ──SSE──▶  [Express.js API]  ──▶  [Agent Orchestrator]
+ React+Vite               Node.js/TS              Parallel + Conditional
+
+                    ┌──────────┬───────────┬──────────┬──────────┐
+                    ▼          ▼           ▼          ▼          ▼
+              [Data Quality] [Business] [Risk]   [Financing] [Human Rev]
+              Stage 1       Stage 2    Stage 3   Stage 4     Stage 5
+              (parallel)    (parallel) ↓debate?
+
+                    ▼ MCP calls              ▼ Bedrock calls
+              [MCP Server]           [Amazon Bedrock]
+              3 tools                Nova Pro · Converse API · Tool Use
+
+                                     [Amazon DynamoDB]
+                                     zalyx-merchants table
+                                     zalyx-decisions table + decision-index GSI
 ```
 
-## Workflow Stages
+---
 
-### Stage 1: Data Quality Assessment
-**Agent:** `DataQualityAgent`
-- Validates merchant data completeness
-- Checks for consistency issues
-- Identifies anomalies (unusual transactions, gaps)
-- Produces: Data quality score (0-100)
+## Agent Pipeline
 
-### Stage 2: Business Analysis
-**Agent:** `BusinessAnalysisAgent`
-- Analyzes revenue trends
-- Calculates business health metrics
-- Evaluates profitability
-- Produces: Business health score (0-100)
-- First recommendation: "Approve/Moderate/Reject"
+### Stage 1+2 — Parallel
 
-### Stage 3: Risk Assessment
-**Agent:** `RiskAssessmentAgent`
-- Independently evaluates risk factors
-- Calculates volatility index
-- Assesses concentration risk
-- **Can disagree with Business Analysis Agent** ← This is the key feature
-- Produces: Risk score (0-100)
-- Second recommendation: "Low risk/Moderate/High risk"
+**Data Quality Agent** (`agents/data-quality-agent.ts`)
+- Validates completeness and consistency of merchant snapshot
+- Detects anomalies: high receivables, edit/delete/backdate rates, batch entry patterns
+- Calls MCP `check_cbn_compliance` to block restricted merchant categories
+- 1 Bedrock call · position message
 
-**Debate Point:** If Business Agent says "Healthy" (score 75+) but Risk Agent says "High volatility," the system captures this disagreement for later synthesis.
+**Business Analysis Agent** (`agents/business-analysis-agent.ts`)
+- Computes business health score (0–100) from revenue trend, active days, order completion rate
+- Contextualises seasonality patterns (school term fees, market cycles)
+- Calls MCP `get_industry_benchmarks` to compare merchant GTV vs sector peers
+- 1 Bedrock call (initial) + 1 Bedrock call (rebuttal if debate fires)
 
-### Stage 4: Financing Structure
-**Agent:** `FinancingStructureAgent`
-- Takes input from both business and risk analyses
-- Designs financing terms
-- Proposes amount based on revenue × health multiplier × risk adjustment
-- Determines repayment schedule
-- Produces: Proposed amount, terms, payment schedule
+### Stage 3 — Risk Assessment
 
-### Stage 5: Human Review
-**Agent:** `HumanReviewAgent`
-- Synthesizes all agent outputs
-- Analyzes disagreements
-- Produces final underwriting decision
-- Adjusts terms based on risks identified
-- Outputs: APPROVED / REJECTED / REQUIRES-CLARIFICATION
+**Risk Assessment Agent** (`agents/risk-assessment-agent.ts`)
+- Directly challenges the Business Agent's position
+- Flags volatility, concentration risk, receivables exposure, operating history
+- Calls MCP `get_sector_default_rate` to ground risk in Zalyx's historical portfolio data
+- 1 Bedrock call (challenge) + 1 Bedrock call (final verdict if debate fires)
 
-## Key Design Decisions
+### Stages 3b/3c — Conditional Debate (fires when health > 55 AND risk > 35)
 
-### 1. Agent Independence
-Each agent evaluates the merchant independently before seeing other agents' outputs. This prevents bias and ensures diverse perspectives.
+When agents have conflicting assessments, a second exchange is forced:
+- **Business Agent rebuttal**: defends or concedes the contested claims
+- **Risk Agent final verdict**: accepts, maintains, or finds a compromise position
+- A `DebateResolution` record and `DebateLedger` (typed claim-by-claim breakdown) are built from the exchange
+- The debate outcome is the primary input to the Human Review Agent
 
-### 2. Debate Mechanism
-The `debateTranscript` captures each agent's analysis and recommendation. Conflicts are explicitly noted:
-- "Business Agent recommends approval; Risk Agent flags volatility"
-- These disagreements drive better decision-making
+### Stage 4 — Financing Structure (skipped if risk ≥ 80)
 
-### 3. Staged Evaluation
-Agents run sequentially (not in parallel) so each can see prior context:
-- Data Quality → Business Analysis → Risk → Structure → Human Review
+**Financing Structure Agent** (`agents/financing-structure-agent.ts`)
+- Computes a Murabaha-compliant financing offer from the merchant's GTV
+- Murabaha: Zalyx buys an asset at cost price, sells to merchant at sale price (cost + disclosed profit margin). No interest, no compounding, no late fees.
+- Affordability cap: monthly installment ≤ 20% of average monthly GTV
+- 1 Bedrock call
 
-### 4. Proprietary Logic vs. Open Architecture
-- **Open:** Agent framework, orchestration, message passing
-- **Proprietary:** Exact scoring formulas (abstracted as Qwen API calls)
+### Stage 5 — Human Review
 
-## Data Structures
+**Human Review Agent** (`agents/human-review-agent.ts`)
+- Synthesises all prior stages and the full debate transcript
+- Issues final recommendation: `approved` | `rejected` | `requires-clarification`
+- Specifies approval amount, disbursement conditions, terms adjustments
+- 2 Bedrock calls
 
-### Input: MerchantData
+---
+
+## Amazon Bedrock Integration
+
+All agents use the Bedrock Converse API via `utils/bedrock-client.ts`:
+
+```typescript
+// Tool use — agents request structured output via tool calls
+const response = await bedrockClient.chatWithTools(
+  messages,
+  [SUBMIT_RISK_VERDICT_TOOL],   // OpenAI-format tool schema
+  "Risk Assessment Agent"
+);
+// → { toolCall: { name: "submit_risk_verdict", arguments: { risk_level, adjusted_risk_score, ... } } }
+```
+
+The client converts OpenAI-format tool schemas to Bedrock `toolSpec` internally:
+```typescript
+{ toolSpec: { name, description, inputSchema: { json: parameters } } }
+```
+
+Bedrock returns `stopReason: "tool_use"` with a `toolUse` block containing already-parsed JSON — no string parsing needed. Every structured field in the final report comes from a tool call argument.
+
+**Per run: 8 Bedrock calls total** (varies by whether debate fires and stage 4 is skipped).
+
+---
+
+## Amazon DynamoDB Integration
+
+Two tables, provisioned automatically on first boot via `utils/dynamo.ts`:
+
+### `zalyx-merchants`
+- **Partition key:** `id` (S)
+- Stores `ZalyxMerchantSnapshot` objects
+- Seeded from `/data/snapshots/*.json` on first boot
+- Read by `GET /api/merchants` (list) and `GET /api/merchants/:id`
+
+### `zalyx-decisions`
+- **Partition key:** `merchantId` (S)
+- **Sort key:** `requestId` (S)
+- Stores complete `UnderwritingReport` blobs (full audit trail)
+- Written after every completed underwriting run
+
+### `decision-index` GSI
+- **Hash key:** `decision` (S) — `approved` | `rejected` | `requires-clarification`
+- **Range key:** `createdAt` (S)
+- Enables cross-merchant queries: "show all rejections this week"
+- Supports `GET /api/decisions?type=rejected` endpoint
+- Added via `UpdateTableCommand` on existing tables if missing
+
+All tables use `PAY_PER_REQUEST` billing — no capacity planning required.
+
+---
+
+## MCP Server
+
+`mcp-server/` implements three tools over stdio transport:
+
+| Tool | Purpose | Called by |
+|---|---|---|
+| `check_cbn_compliance` | Blocks restricted merchant categories (CBN regulation) | Data Quality Agent |
+| `get_industry_benchmarks` | Merchant GTV vs sector peers | Business Analysis Agent |
+| `get_sector_default_rate` | Zalyx portfolio default rates by sector + risk tier | Risk Assessment Agent |
+
+3 MCP calls per underwriting run.
+
+---
+
+## Observability
+
+Every `UnderwritingReport` includes a `RunObservability` object:
+
 ```typescript
 {
-  id: string,
-  businessName: string,
-  businessType: string,
-  registrationDate: string,
-  transactions: [{
-    date: string,
-    amount: number,
-    type: "income" | "expense",
-    description: string
-  }]
+  requestId: string,          // UUID for this run
+  model: string,              // "amazon.nova-pro-v1:0"
+  totalBedrockCalls: number,  // typically 8
+  totalMcpCalls: number,      // typically 3
+  agentTimings: AgentTiming[], // per-stage durationMs + call counts
+  debateRoundFired: boolean,
+  stage4Skipped: boolean,
 }
 ```
 
-### Output: UnderwritingReport
+A `DecisionDelta` compares the single-agent baseline decision vs the multi-agent outcome — attached to every report so the value of the debate is immediately visible.
+
+---
+
+## Data Model — Key Types
+
 ```typescript
-{
-  merchantId: string,
-  executionTime: string,
-  dataQuality: DataQualityResult,
-  businessAnalysis: BusinessAnalysisResult,
-  riskAssessment: RiskAssessmentResult,
-  financingStructure: FinancingStructureResult,
-  humanReview: HumanReviewResult,
-  debateTranscript: AgentDebateMessage[]
-}
+ZalyxMerchantSnapshot   // Input: real merchant data from Zalyx pipeline
+UnderwritingReport      // Output: full structured report (stored in DynamoDB)
+  ├── DataQualityResult
+  ├── BusinessAnalysisResult
+  ├── RiskAssessmentResult
+  ├── FinancingStructureResult (Murabaha terms)
+  ├── HumanReviewResult
+  ├── AgentDebateMessage[]   // Full transcript
+  ├── DebateResolution       // Who prevailed and why
+  ├── DebateLedger           // Typed claim-by-claim breakdown
+  ├── DecisionDelta          // Baseline vs multi-agent comparison
+  └── RunObservability       // Audit trail
 ```
-
-## How Disagreement is Handled
-
-**Example:**
-1. Business Analysis Agent: "Merchant is healthy. Revenue stable. Recommend approval for ₦500K."
-2. Risk Assessment Agent: "Revenue appears stable BUT shows seasonal patterns. Q4 shows 40% dip. Recommend lower amount or flexible terms."
-3. Financing Structure Agent: Proposes ₦350K with seasonal flexibility
-4. Human Review Agent: "Approves ₦400K with Q4 payment flexibility"
-
-The system makes better decisions than a single agent because:
-- Risk Agent catches seasonal patterns Business Agent might miss
-- Business Agent's optimism is balanced by Risk Agent's conservatism
-- Final terms reflect both perspectives
-
-## Integration with Qwen Cloud
-
-The system uses Qwen Cloud's OpenAI-compatible API for:
-- Natural language analysis of financial data
-- Generating agent recommendations
-- Synthesizing debate into final decisions
-
-Each agent calls Qwen with:
-1. System prompt defining their role
-2. Current merchant data
-3. Request for analysis/recommendation
-
-## Extensibility
-
-To add new agents:
-1. Create `new-agent.ts` in `/agents` folder
-2. Implement interface with `evaluate()` method
-3. Add to `AgentOrchestrator.runUnderwriting()`
-4. Return `{ result, debateMessage }`
-
-Example: Credit History Agent, Market Analysis Agent, Compliance Check Agent, etc.
-
-## Performance
-
-- Typical underwriting: 30-60 seconds
-- Bottleneck: Qwen API latency (not local processing)
-- Can be optimized with parallel agent evaluation (currently sequential for clarity)

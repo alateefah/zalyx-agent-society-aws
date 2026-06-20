@@ -15,14 +15,19 @@
   },
   "keywords": [
     "agents",
-    "qwen",
+    "aws",
+    "bedrock",
+    "dynamodb",
     "fintech",
     "underwriting",
     "halal-finance"
   ],
-  "author": "Your Name",
+  "author": "Lateefah Adewale",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1072.0",
+    "@aws-sdk/client-dynamodb": "^3.1072.0",
+    "@aws-sdk/lib-dynamodb": "^3.1072.0",
     "@langchain/core": "^0.1.0",
     "@langchain/langgraph": "^0.0.1",
     "@modelcontextprotocol/sdk": "^1.29.0",

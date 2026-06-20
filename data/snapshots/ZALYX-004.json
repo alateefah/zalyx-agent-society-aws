@@ -1,0 +1,52 @@
+{
+  "id": "ZALYX-004",
+  "businessName": "Lagos Kitchen Co.",
+  "businessType": "Food & Beverage",
+  "ageInDays": 312,
+  "orders": {
+    "total": 284,
+    "completed": 271,
+    "cancelled": 3,
+    "outstanding": 10
+  },
+  "receivables": {
+    "outstandingOrders": 10,
+    "totalOwedNaira": 148000,
+    "totalCollectedNaira": 141000,
+    "uncollectedNaira": 7000
+  },
+  "monthlyRevenue": [
+    { "month": "2026-01", "revenueNaira": 1820000, "orderCount": 38, "uniqueCustomers": 31 },
+    { "month": "2026-02", "revenueNaira": 2110000, "orderCount": 44, "uniqueCustomers": 37 },
+    { "month": "2026-03", "revenueNaira": 2340000, "orderCount": 49, "uniqueCustomers": 40 },
+    { "month": "2026-04", "revenueNaira": 2580000, "orderCount": 53, "uniqueCustomers": 44 },
+    { "month": "2026-05", "revenueNaira": 2790000, "orderCount": 57, "uniqueCustomers": 47 },
+    { "month": "2026-06", "revenueNaira": 1460000, "orderCount": 31, "uniqueCustomers": 26 }
+  ],
+  "signals": {
+    "period30d": {
+      "activeDays": 24,
+      "totalOrders": 57,
+      "avgDailyRevenueNaira": 92600,
+      "editRate": 0.02,
+      "deleteRate": 0.01,
+      "backdateRate": 0,
+      "batchDays": 0
+    },
+    "period90d": {
+      "activeDays": 68,
+      "totalOrders": 153,
+      "avgDailyRevenueNaira": 86400
+    }
+  },
+  "existingDecision": {
+    "score": 88,
+    "tier": "A",
+    "eligible": true,
+    "offerAmountNaira": 500000,
+    "fixedFeeNaira": 50000,
+    "tenorMonths": 6,
+    "confidence": "HIGH",
+    "asOfDate": "2026-06-10"
+  }
+}

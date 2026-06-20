@@ -1,18 +1,20 @@
 # Zalyx Agent Society
 
-**Multi-Agent Merchant Underwriting System** — Qwen Cloud Hackathon, Track 3: Agent Society
+**Multi-Agent Merchant Underwriting System** — H0: Hack the Zero Stack · Track 2: Monetizable B2B App
 
 A five-agent debate pipeline that makes smarter, more transparent merchant financing decisions than any single AI call. Built on real anonymized data from [Zalyx](https://zalyx.com), a Nigerian fintech platform serving 700+ merchants.
 
+**Stack:** Amazon Bedrock (Nova Pro) · Amazon DynamoDB · Vercel · MCP
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Powered by Qwen Cloud](https://img.shields.io/badge/AI-Qwen%20Cloud-blue)](https://www.alibabacloud.com/product/machine-learning)
-[![CI](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml/badge.svg)](https://github.com/alateefah/zalyx-agent-society/actions/workflows/ci.yml)
+[![Powered by AWS](https://img.shields.io/badge/AI-Amazon%20Bedrock-orange)](https://aws.amazon.com/bedrock/)
+[![Database](https://img.shields.io/badge/DB-Amazon%20DynamoDB-blue)](https://aws.amazon.com/dynamodb/)
 
 ---
 
 ## What it does
 
-Five specialized AI agents debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**. Every agent uses **Qwen function calling** to return structured JSON — not parsed prose.
+Five specialized AI agents (powered by **Amazon Bedrock**) debate every financing application, each enriched with live data from a custom **MCP (Model Context Protocol) server**. Every agent uses Bedrock tool use to return structured JSON — not parsed prose. All merchant snapshots and underwriting decisions are persisted in **Amazon DynamoDB**, giving a full auditable history of every decision the system has made.
 
 | Agent | Role | MCP Tool Used |
 |---|---|---|
@@ -23,7 +25,7 @@ Five specialized AI agents debate every financing application, each enriched wit
 | 💰 Financing Structure | Designs Murabaha-compliant terms from GTV | — |
 | 👤 Human Review | Synthesises the full debate → final decision | — |
 
-The system also runs a **single-agent baseline** in parallel — same data, one LLM call — to demonstrate measurable improvement from the multi-agent approach.
+A **single-agent baseline** runs in parallel — same data, one LLM call — to demonstrate measurable improvement from the multi-agent approach.
 
 ---
 
@@ -45,45 +47,45 @@ Installment = sale price ÷ tenor months
 | High (65–80) | 5% of avg monthly GTV | 2 months | 20% |
 | Very high (80+) | Rejected | — | — |
 
-Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV. If it exceeds that, the sale price is reduced until it fits.
+Affordability cap: monthly installment must be ≤ 20% of avg monthly GTV.
 
 **Conditional debate round**
-The debate round (Stage 3b/3c) only fires when the Business Analyst's health score > 55 AND the Risk Officer's score > 35 — i.e. when agents genuinely disagree. Clear approvals and clear rejections skip it, saving LLM calls.
+The debate round only fires when the Business Analyst's health score > 55 AND the Risk Officer's score > 35 — i.e. when agents genuinely disagree. Clear approvals and rejections skip it, saving Bedrock calls.
 
-**All 5 agents use Qwen function calling**
-Every agent submits its output via a structured tool call rather than prose:
-
-| Agent | Tool |
-|---|---|
-| Data Quality | `submit_data_quality_result` |
-| Business Analysis | `submit_business_position` |
-| Risk Assessment | `submit_risk_verdict` |
-| Financing Structure | `structure_murabaha_offer` |
-| Human Review | `issue_underwriting_decision` |
-
-This means every field in the final report — scores, risk factors, Murabaha terms, disbursement conditions — comes from a structured JSON argument, not string parsing.
+**All 5 agents use Bedrock tool use**
+Every agent submits its output via a Bedrock tool call (`toolSpec` / `toolUse`) rather than prose. Every field in the final report comes from a structured JSON argument, not string parsing.
 
 **MCP integration**
-A dedicated MCP server (stdio transport, `@modelcontextprotocol/sdk`) exposes three tools that agents call during reasoning — not just pre-loaded context but live lookups that change what the agents say:
+A dedicated MCP server (stdio transport, `@modelcontextprotocol/sdk`) exposes three tools that agents call during reasoning — live lookups that change what the agents say:
 
-- `check_cbn_compliance` — blocks applications from CBN watchlist or restricted sectors before underwriting begins
-- `get_industry_benchmarks` — gives the Business Analyst sector-specific GTV averages, active day norms, and completion rate benchmarks to compare this merchant against peers
-- `get_sector_default_rate` — gives the Risk Agent Zalyx's historical default rates for this sector + risk tier, and suggests a minimum Murabaha profit margin
+- `check_cbn_compliance` — blocks applications from CBN watchlist or restricted sectors
+- `get_industry_benchmarks` — sector-specific GTV averages, active day norms, completion rate benchmarks
+- `get_sector_default_rate` — historical default rates for this sector + risk tier, and suggested Murabaha profit margin floor
+
+**DynamoDB data model**
+Two tables, provisioned automatically on first run (PAY_PER_REQUEST billing):
+
+- `zalyx-merchants` — partition key `id` — merchant snapshots seeded from `data/snapshots/`
+- `zalyx-decisions` — partition key `merchantId`, sort key `requestId` — full `UnderwritingReport` blobs, newest first
 
 **DebateLedger**
-When the debate round fires, a deterministic `DebateModerator` parses the transcript into typed `DebateClaim[]` objects — each with a `claimId`, evidence from both sides, and a resolution type (`claim_withdrawn`, `risk_concern_upheld`, `compromise_condition_set`, etc.). This makes the agent negotiation machine-readable and auditable, not just a chat log.
+When the debate round fires, a deterministic `DebateModerator` parses the transcript into typed `DebateClaim[]` objects — each with a `claimId`, evidence from both sides, and a resolution type. Machine-readable and auditable, not just a chat log.
 
 ---
 
 ## Architecture
 
 ```
-Browser (React + Vite)
+Browser (React + Vite → deployed on Vercel)
   │
   │  SSE stream: POST /api/underwrite/stream
   │  Parallel:   POST /api/baseline
   ▼
 Express API (Node.js / TypeScript)
+  │
+  ├─ Amazon DynamoDB
+  │    ├── zalyx-merchants  (GET /api/merchants, GET /api/merchants/:id)
+  │    └── zalyx-decisions  (persisted after every underwriting run)
   │
   ▼
 Agent Orchestrator
@@ -106,7 +108,7 @@ Agent Orchestrator
   └─ Stage 5:
        └── Human Review Agent → Decision + DecisionDelta + RunObservability
   │
-  ├── Qwen Cloud API (DashScope, qwen-max, function calling — all 5 agents)
+  ├── Amazon Bedrock (Nova Pro / Claude, tool use — all 5 agents)
   └── MCP Server (stdio) ← mcp-server/index.ts
         ├── check_cbn_compliance
         ├── get_industry_benchmarks
@@ -122,14 +124,14 @@ Agent Orchestrator
 ### Prerequisites
 
 - Node.js 20+
-- A Qwen Cloud API key from [Alibaba Cloud DashScope](https://dashscope-intl.aliyuncs.com)
+- AWS account with Bedrock model access enabled ([request here](https://console.aws.amazon.com/bedrock/home#/modelaccess))
+- DynamoDB access in your AWS region
 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/alateefah/zalyx-agent-society.git
+git clone https://github.com/alateefah/zalyx-agent-society-aws.git
 cd zalyx-agent-society
-
 yarn install
 cd frontend && yarn install && cd ..
 ```
@@ -143,13 +145,14 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-QWEN_API_KEY=your_qwen_cloud_api_key_here
-QWEN_MODEL=qwen-max
-QWEN_API_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=us-east-1
+BEDROCK_MODEL_ID=amazon.nova-pro-v1:0
 PORT=3001
 ```
 
-> **No API key?** The system runs in mock mode automatically — all five agents return realistic demo responses. The header shows a pulsing **"Mock mode"** badge so you always know which mode you're in.
+> **No AWS credentials?** Set `BEDROCK_MOCK_MODE=true` — all five agents return realistic demo responses and DynamoDB falls back to local JSON files. A pulsing **"Mock mode"** badge shows in the UI.
 
 ### 3. Run
 
@@ -157,9 +160,10 @@ PORT=3001
 yarn dev
 ```
 
-Opens:
 - Backend API: http://localhost:3001
 - Frontend UI: http://localhost:5173
+
+DynamoDB tables are created automatically on first boot and seeded with the three demo merchants.
 
 ---
 
@@ -173,133 +177,109 @@ Three real anonymized Zalyx merchants with different risk profiles:
 | ZALYX-002 | Natural skin & hair | requires-clarification | **Approved** — MCP sector benchmarks contextualise low GTV |
 | ZALYX-003 | Freelancer | requires-clarification | **Approved** — high sector default rate (23.6%) covenanted into terms |
 
-The decision quality difference is in the output structure: the multi-agent pipeline produces a formal `DebateResolution` record, typed `DebateLedger` claims, Murabaha installment schedule, and `RunObservability` for every run. The baseline produces a paragraph.
-
-### Benchmark Results (committed — `benchmark/results.md`)
+### Benchmark Results (`benchmark/results.md`)
 
 | Metric | Value |
 |---|---|
 | Merchants benchmarked | 3 |
 | Decisions that differed (baseline vs multi-agent) | **3/3** |
 | Debate round fired | **3/3** merchants |
-| Total structured risk factors surfaced | 9 |
+| Structured risk factors surfaced | 9 |
 | Avg structured output completeness | **100%** |
 | Avg actionability score | **100/100** |
 | Avg baseline latency | 0.5s |
 | Avg multi-agent latency | 5.6s |
-| Qwen function calls per run | 8 (all 5 agents use structured tool output) |
-| MCP calls per run | 3 (CBN compliance + sector benchmarks + default rate) |
+| Bedrock tool calls per run | 8 (all 5 agents) |
+| MCP calls per run | 3 (CBN + benchmarks + default rate) |
 
-Full per-merchant breakdown: [`benchmark/results.md`](benchmark/results.md) · raw data: [`benchmark/results.json`](benchmark/results.json)
-
-Run yourself: `yarn benchmark`
+Run: `yarn benchmark`
 
 ---
 
 ## API Reference
 
+### `GET /api/merchants`
+List all merchants from DynamoDB.
+
+### `GET /api/merchants/:id`
+Load a specific merchant snapshot.
+
 ### `POST /api/underwrite/stream`
+Run the full 5-agent debate with **live SSE streaming**. Persists the completed report to DynamoDB.
 
-Run the full 5-agent debate with **live SSE streaming**. Each agent's output is streamed as it completes — no waiting for the full pipeline.
-
-**Body:** `ZalyxMerchantSnapshot` (see `utils/types.ts`)
-
-**Response:** `text/event-stream` — emits `AgentProgressEvent` objects as agents complete, then a final `UnderwritingReport`.
+**Body:** `ZalyxMerchantSnapshot`
+**Response:** `text/event-stream` — `AgentProgressEvent` objects as agents complete, then a final `UnderwritingReport`.
 
 ### `POST /api/baseline`
+Run the single-agent baseline (for comparison).
 
-Run the single-agent baseline (for Track 3 comparison).
-
-**Body:** Same `ZalyxMerchantSnapshot`
-
-**Response:** `BaselineReport` with decision, reasoning, and confidence.
+### `GET /api/decisions/:merchantId`
+Retrieve all past decisions for a merchant from DynamoDB, newest first.
 
 ### `GET /api/health`
-
 ```json
-{ "status": "ok", "mockMode": false, "model": "qwen-max", "timestamp": "..." }
+{
+  "status": "ok",
+  "ai": { "provider": "Amazon Bedrock", "model": "amazon.nova-pro-v1:0", "mockMode": false },
+  "database": { "provider": "Amazon DynamoDB", "region": "us-east-1", "mockMode": false }
+}
 ```
 
 ---
 
-## Qwen Cloud integration
+## Amazon Bedrock integration
 
-All five agents use `chatWithTools()` with a typed tool definition. Qwen returns a `tool_calls` object; the orchestrator reads `tool_calls[0].function.arguments` as structured JSON:
+All five agents use `chatWithTools()` with Bedrock's Converse API (`ConverseCommand`). The client converts OpenAI-format tool definitions to Bedrock `toolSpec` format internally, so agent code is provider-agnostic:
 
 ```typescript
-const response = await client.chat.completions.create({
-  model: "qwen-max",
-  messages: [...],
-  tools: [SUBMIT_RISK_VERDICT_TOOL],   // e.g. for Risk Assessment Agent
-  tool_choice: "auto",
-});
-const args = JSON.parse(
-  response.choices[0].message.tool_calls[0].function.arguments
+// bedrock-client.ts converts tool schema format automatically
+const response = await bedrockClient.chatWithTools(
+  messages,
+  [SUBMIT_RISK_VERDICT_TOOL],
+  "Risk Assessment Agent"
 );
-// → { risk_score: 42, risk_factors: [...], recommendation: "approve_with_conditions" }
+// → toolCall: { name: "submit_risk_verdict", arguments: { risk_level, adjusted_risk_score, ... } }
 ```
 
-The MCP server runs as a stdio child process. Agents call it mid-reasoning:
-
+Under the hood, Bedrock Converse returns:
 ```typescript
-// Data Quality Agent
-const cbn = await mcpClient.checkCbnCompliance({ merchant_id, business_type });
-// → { status: "clear", can_proceed: true, details: "..." }
-
-// Business Analysis Agent
-const bench = await mcpClient.getIndustryBenchmarks({ business_type, merchant_monthly_gtv });
-// → { benchmarks: {...}, merchant_vs_sector: { gtv_assessment: "..." } }
-
-// Risk Assessment Agent
-const dr = await mcpClient.getSectorDefaultRate({ business_type, risk_tier: "moderate" });
-// → { historical_default_rate_pct: 6.4, suggested_murabaha_margin_floor: 15 }
+response.output.message.content  // ContentBlock[]
+// stopReason === "tool_use" → toolUse.name + toolUse.input (already-parsed JSON, no string parsing needed)
 ```
 
-All MCP calls degrade gracefully — if the server is unavailable, agents proceed without the extra context rather than failing the request.
+Switch models by changing `BEDROCK_MODEL_ID` — any model with tool use support works.
 
 ---
 
-## Project structure
+## Amazon DynamoDB integration
 
+```typescript
+import { getMerchantSnapshot, saveUnderwritingDecision, listMerchants } from "./utils/dynamo";
+
+// Read merchant from DynamoDB (falls back to local JSON in mock mode)
+const snapshot = await getMerchantSnapshot("ZALYX-001");
+
+// Persist decision after every underwriting run (called automatically by server.ts)
+await saveUnderwritingDecision(report);
+
+// List all merchants
+const all = await listMerchants();
 ```
-zalyx-agent-society/
-├── agents/
-│   ├── baseline-agent.ts            # Single-agent baseline (Track 3 comparison)
-│   ├── business-analysis-agent.ts   # MCP: get_industry_benchmarks
-│   ├── data-quality-agent.ts        # MCP: check_cbn_compliance
-│   ├── debate-moderator.ts          # Deterministic DebateLedger builder (no LLM)
-│   ├── financing-structure-agent.ts # Murabaha structuring via murabaha-engine
-│   ├── human-review-agent.ts        # Final decision (function calling)
-│   └── risk-assessment-agent.ts     # MCP: get_sector_default_rate
-├── mcp-server/
-│   └── index.ts                     # MCP server (stdio) — 3 underwriting tools
-├── orchestration/
-│   └── agent-orchestrator.ts        # Parallel stages, conditional debate, SSE events
-├── utils/
-│   ├── mcp-client.ts                # MCP client singleton with clean shutdown
-│   ├── murabaha-engine.ts           # Pure Murabaha math (testable, no side effects)
-│   ├── qwen-client.ts               # Qwen Cloud (DashScope) API client
-│   └── types.ts                     # All types: snapshot, report, ledger, observability
-├── benchmark/
-│   ├── run.ts                       # Benchmark runner (yarn benchmark)
-│   ├── results.md                   # Committed benchmark results
-│   └── results.json                 # Raw benchmark data
-├── data/
-│   └── snapshots/                   # Anonymized merchant JSON snapshots
-├── tests/
-│   ├── murabaha.test.ts             # 25 unit tests for Murabaha engine
-│   └── orchestrator.test.ts         # 7 integration tests for the pipeline
-├── frontend/                        # React + Vite UI
-│   └── src/
-│       ├── App.tsx                  # SSE consumer + Debate Ledger / Delta / Obs panels
-│       └── App.css
-├── .github/
-│   └── workflows/ci.yml             # CI: type-check, frontend build, docker build
-├── server.ts                        # Express API + SSE endpoint
-├── Dockerfile
-├── docker-compose.yml
-└── .env.example
-```
+
+Tables use `PAY_PER_REQUEST` billing — no capacity planning, scales to zero, scales to millions.
+
+---
+
+## Technical stack
+
+| Layer | Technology |
+|---|---|
+| AI | Amazon Bedrock (Nova Pro), Converse API, tool use |
+| Database | Amazon DynamoDB (PAY_PER_REQUEST, two tables) |
+| MCP | `@modelcontextprotocol/sdk` v1.29, stdio, 3 tools |
+| Backend | Node.js, Express, TypeScript |
+| Frontend | React, Vite → deployed on Vercel |
+| Infrastructure | Docker, Vercel (frontend), AWS (backend) |
 
 ---
 
@@ -310,9 +290,9 @@ yarn test
 ```
 
 - `tests/murabaha.test.ts` — 25 unit tests: risk tier selection, GTV pricing, affordability cap, installment math
-- `tests/orchestrator.test.ts` — 7 integration tests: pipeline completes, debate fires/skips, Stage 4 skip, all report fields present
+- `tests/orchestrator.test.ts` — 7 integration tests: pipeline completes, debate fires/skips, Stage 4 skip
 
-32/32 passing. Jest exits cleanly — `afterAll()` closes the MCP stdio child process explicitly (no `forceExit` needed).
+32/32 passing.
 
 ---
 
@@ -322,31 +302,40 @@ yarn test
 docker compose up --build
 ```
 
-App available at http://localhost:3001. Docker build is verified on every push via GitHub Actions.
-
 ---
 
-## Deploy to Alibaba Cloud ECS
+## Deploy
+
+### Backend — AWS ECS / EC2
 
 ```bash
-# On your ECS instance (Ubuntu 22.04):
+# EC2 (Ubuntu 22.04) with IAM role granting Bedrock + DynamoDB access:
 curl -fsSL https://get.docker.com | sh
-git clone https://github.com/alateefah/zalyx-agent-society.git
+git clone https://github.com/alateefah/zalyx-agent-society-aws.git
 cd zalyx-agent-society
-echo "QWEN_API_KEY=your_key" > .env
-echo "QWEN_MODEL=qwen-max" >> .env
+echo "AWS_REGION=us-east-1" > .env
+echo "BEDROCK_MODEL_ID=amazon.nova-pro-v1:0" >> .env
 docker compose up -d --build
 curl http://localhost:3001/api/health
+```
+
+### Frontend — Vercel
+
+```bash
+cd frontend
+npx vercel --prod
+# Add VITE_API_URL=https://your-backend-url in Vercel environment settings
 ```
 
 ---
 
 ## Hackathon
 
-**Event:** Qwen Cloud Hackathon 2026
-**Track:** Track 3 — Agent Society
-**Deadline:** July 9, 2026 @ 2:00pm PDT
-**Repo:** https://github.com/alateefah/zalyx-agent-society
+**Event:** H0: Hack the Zero Stack with Vercel v0 and AWS Databases
+**Track:** Track 2 — Monetizable B2B App
+**Deadline:** Jun 29, 2026 @ 5:00pm PDT
+**Devpost:** https://h01.devpost.com
+**Stack:** Amazon Bedrock · Amazon DynamoDB · Vercel
 
 ---
 

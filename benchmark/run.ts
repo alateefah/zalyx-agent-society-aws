@@ -57,7 +57,7 @@ interface BenchmarkRow {
   risk_factors_caught: number;
   debate_fired: boolean;
   agent_stages: number;
-  qwen_structured_calls: number;
+  bedrock_structured_calls: number;
 
   // Comparison
   decisions_differ: boolean;
@@ -186,7 +186,7 @@ async function benchmarkMerchant(
     risk_factors_caught: multiRiskFactors,
     debate_fired: debateFired,
     agent_stages: report.debateTranscript.length,
-    qwen_structured_calls: structuredCalls,
+    bedrock_structured_calls: structuredCalls,
 
     decisions_differ: baseline.decision !== report.humanReview.finalRecommendation,
     extra_risk_factors_vs_baseline: Math.max(0, multiRiskFactors - baselineRiskFactorMentions),
@@ -200,8 +200,8 @@ async function benchmarkMerchant(
 // ── Markdown table ────────────────────────────────────────────────────────────
 
 function toMarkdownTable(rows: BenchmarkRow[]): string {
-  const isMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
-  const mode = isMock ? "Mock Mode" : "Live AI (Qwen Cloud)";
+  const isMock = process.env.BEDROCK_MOCK_MODE === "true" || !process.env.AWS_ACCESS_KEY_ID;
+  const mode = isMock ? "Mock Mode" : "Live AI (Amazon Bedrock)";
 
   const lines: string[] = [];
   lines.push(`# Zalyx Agent Society — Benchmark Results`);
@@ -239,11 +239,11 @@ function toMarkdownTable(rows: BenchmarkRow[]): string {
   // ── Risk coverage ─────────────────────────────────────────────────────────
   lines.push(`## 3. Risk Coverage & Agent Activity`);
   lines.push(``);
-  lines.push(`| Merchant | Data Quality | Health Score | Risk Score | Risk Factors | Debate Fired | Agent Stages | Structured Qwen Calls |`);
+  lines.push(`| Merchant | Data Quality | Health Score | Risk Score | Risk Factors | Debate Fired | Agent Stages | Structured Bedrock Calls |`);
   lines.push(`|---|---|---|---|---|---|---|---|`);
   for (const r of rows) {
     lines.push(
-      `| ${r.merchant_id} | ${r.data_quality_score}/100 | ${r.business_health_score}/100 | ${r.risk_score}/100 | ${r.risk_factors_caught} | ${r.debate_fired ? "**Yes**" : "No"} | ${r.agent_stages} | ${r.qwen_structured_calls} |`
+      `| ${r.merchant_id} | ${r.data_quality_score}/100 | ${r.business_health_score}/100 | ${r.risk_score}/100 | ${r.risk_factors_caught} | ${r.debate_fired ? "**Yes**" : "No"} | ${r.agent_stages} | ${r.bedrock_structured_calls} |`
     );
   }
   lines.push(``);
@@ -300,8 +300,8 @@ async function main() {
   console.log("\n🏁 Zalyx Agent Society — Benchmark Runner");
   console.log("==========================================");
 
-  const isMock = !process.env.QWEN_API_KEY || process.env.QWEN_API_KEY === "your_qwen_cloud_api_key_here";
-  console.log(`Mode: ${isMock ? "⚠️  MOCK (no Qwen API key)" : "✅ Live AI (Qwen Cloud)"}`);
+  const isMock = process.env.BEDROCK_MOCK_MODE === "true" || !process.env.AWS_ACCESS_KEY_ID;
+  console.log(`Mode: ${isMock ? "⚠️  MOCK (no AWS credentials)" : "✅ Live AI (Amazon Bedrock)"}`);
 
   const snapshots = loadSnapshots();
   console.log(`Merchants: ${snapshots.map((s) => s.id).join(", ")}`);

@@ -1,11 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   ShieldCheck, TrendingUp, AlertTriangle,
   Landmark, UserCheck, ChevronDown, ArrowLeft,
   Download, CheckCircle2, XCircle, Clock,
   School, ShoppingBag, Briefcase, Zap, Swords,
   TriangleAlert, CircleCheck, Info, Scale, GitCompare, Activity,
+  UtensilsCrossed, History, Database,
 } from "lucide-react";
+
+// ── API base URL — set VITE_API_URL in Vercel env vars to point at the backend ──
+const API_BASE: string = (import.meta.env as Record<string, string>).VITE_API_URL ?? "";
 
 // ── Zalyx brand logo — uses extracted icon from official brand guide ──────────
 function ZalyxLogo({ height = 32 }: { height?: number }) {
@@ -81,11 +85,11 @@ interface DecisionDelta {
   baselineExecutionTime: string; multiAgentExecutionTime: string;
 }
 interface AgentTiming {
-  agentName: string; durationMs: number; qwenCallCount: number; mcpCallCount: number;
+  agentName: string; durationMs: number; bedrockCallCount: number; mcpCallCount: number;
 }
 interface RunObservability {
   requestId: string; mockMode: boolean; model: string;
-  totalQwenCalls: number; totalMcpCalls: number;
+  totalBedrockCalls: number; totalMcpCalls: number;
   agentTimings: AgentTiming[];
   parallelStages: string[]; debateRoundFired: boolean; stage4Skipped: boolean;
 }
@@ -125,7 +129,7 @@ type AgentProgressEvent =
   | { type: "done";   report: UnderwritingReport }
   | { type: "error";  message: string };
 
-// ── Demo data ─────────────────────────────────────────────────────────────────
+// ── Demo data — fallback if API is unreachable ────────────────────────────────
 
 const DEMO_MERCHANTS: Record<string, ZalyxMerchantSnapshot> = {
   school: {
@@ -168,6 +172,24 @@ const DEMO_MERCHANTS: Record<string, ZalyxMerchantSnapshot> = {
       period30d: { activeDays: 0, totalOrders: 0, avgDailyRevenueNaira: 0, editRate: 0, deleteRate: 0, backdateRate: 0, batchDays: 0 },
       period90d: { activeDays: 6, totalOrders: 8, avgDailyRevenueNaira: 12278 },
     },
+  },
+  restaurant: {
+    id: "ZALYX-004", businessName: "Lagos Kitchen Co.", businessType: "Food & Beverage", ageInDays: 312,
+    orders: { total: 284, completed: 271, cancelled: 3, outstanding: 10 },
+    receivables: { outstandingOrders: 10, totalOwedNaira: 148000, totalCollectedNaira: 141000, uncollectedNaira: 7000 },
+    monthlyRevenue: [
+      { month: "2026-01", revenueNaira: 1820000, orderCount: 38, uniqueCustomers: 31 },
+      { month: "2026-02", revenueNaira: 2110000, orderCount: 44, uniqueCustomers: 37 },
+      { month: "2026-03", revenueNaira: 2340000, orderCount: 49, uniqueCustomers: 40 },
+      { month: "2026-04", revenueNaira: 2580000, orderCount: 53, uniqueCustomers: 44 },
+      { month: "2026-05", revenueNaira: 2790000, orderCount: 57, uniqueCustomers: 47 },
+      { month: "2026-06", revenueNaira: 1460000, orderCount: 31, uniqueCustomers: 26 },
+    ],
+    signals: {
+      period30d: { activeDays: 24, totalOrders: 57, avgDailyRevenueNaira: 92600, editRate: 0.02, deleteRate: 0.01, backdateRate: 0, batchDays: 0 },
+      period90d: { activeDays: 68, totalOrders: 153, avgDailyRevenueNaira: 86400 },
+    },
+    existingDecision: { score: 88, tier: "A", eligible: true, offerAmountNaira: 500000, fixedFeeNaira: 50000, tenorMonths: 6, confidence: "HIGH", asOfDate: "2026-06-10" },
   },
 };
 
@@ -247,27 +269,90 @@ function AgentCard({ msg, index }: { msg: AgentDebateMessage; index: number }) {
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+// History entry from DynamoDB (summary row, not full report)
+interface DecisionHistoryEntry {
+  merchantId: string;
+  requestId: string;
+  decision: string;
+  createdAt: string;
+  approvedAmountNaira?: string;
+}
+
 export default function App() {
   const [view, setView]           = useState<"form" | "processing" | "report">("form");
-  const [selectedDemo, setDemo]   = useState<"school" | "naturals" | "freelancer">("school");
+  const [selectedDemo, setDemo]   = useState<string>("restaurant");
   const [formMode, setFormMode]   = useState<"demo" | "custom">("demo");
   const [customJson, setJson]     = useState("");
   const [jsonError, setJsonError] = useState("");
-  const [merchantData, setMerchant] = useState<ZalyxMerchantSnapshot>(DEMO_MERCHANTS.school);
+  const [merchants, setMerchants] = useState<ZalyxMerchantSnapshot[]>(Object.values(DEMO_MERCHANTS));
+  const [merchantData, setMerchant] = useState<ZalyxMerchantSnapshot>(DEMO_MERCHANTS.restaurant);
   const [report, setReport]       = useState<UnderwritingReport | null>(null);
   const [baseline, setBaseline]   = useState<BaselineReport | null>(null);
   const [error, setError]         = useState("");
   const [processingLabel, setPLabel] = useState("Starting…");
   const [liveMessages, setLive]   = useState<AgentDebateMessage[]>([]);
   const [isMock, setMock]         = useState<boolean | null>(null);
+  const [ledgerOpen, setLedgerOpen]   = useState(false);
+  const [deltaOpen, setDeltaOpen]     = useState(false);
+  const [obsOpen, setObsOpen]         = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory]     = useState<DecisionHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const toggleLedger = useCallback(() => setLedgerOpen(v => !v), []);
+  const toggleDelta  = useCallback(() => setDeltaOpen(v => !v), []);
+  const toggleObs    = useCallback(() => setObsOpen(v => !v), []);
 
+  // Load health + merchants from DynamoDB on mount
   useEffect(() => {
-    fetch("/api/health").then(r => r.json()).then(h => setMock(h.mockMode)).catch(() => {});
+    fetch(`${API_BASE}/api/health`).then(r => r.json()).then(h => setMock(h.database?.mockMode ?? h.mockMode)).catch(() => {});
+    fetch(`${API_BASE}/api/merchants`)
+      .then(r => r.json())
+      .then((list: ZalyxMerchantSnapshot[]) => {
+        if (Array.isArray(list) && list.length > 0) {
+          setMerchants(list);
+          // Keep selected merchant in sync if it came from API
+          const match = list.find(m => m.id === merchantData.id);
+          if (match) setMerchant(match);
+        }
+      })
+      .catch(() => {}); // silently fall back to hardcoded
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleDemoSelect = (key: "school" | "naturals" | "freelancer") => {
-    setDemo(key);
-    setMerchant(DEMO_MERCHANTS[key]);
+  // Load decision history for the selected merchant
+  const loadHistory = async (merchantId: string) => {
+    setHistoryLoading(true);
+    setHistory([]);
+    try {
+      const res = await fetch(`${API_BASE}/api/decisions/${merchantId}`);
+      const data: UnderwritingReport[] = await res.json();
+      // API returns full UnderwritingReport objects — project to summary rows
+      setHistory(data.map(r => ({
+        merchantId: r.merchantId,
+        requestId: r.observability?.requestId ?? "-",
+        decision: r.humanReview?.finalRecommendation ?? "-",
+        createdAt: r.observability?.requestId
+          ? new Date(parseInt(r.observability.requestId.split("-")[0], 16) * 1000).toISOString()
+          : new Date().toISOString(),
+        approvedAmountNaira: r.humanReview?.approvalAmount,
+      })));
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const toggleHistory = () => {
+    if (!historyOpen) loadHistory(merchantData.id);
+    setHistoryOpen(v => !v);
+  };
+
+  const handleDemoSelect = (merchant: ZalyxMerchantSnapshot) => {
+    setDemo(merchant.id);
+    setMerchant(merchant);
+    setHistoryOpen(false);
+    setHistory([]);
   };
 
   const handleJson = (val: string) => {
@@ -280,15 +365,15 @@ export default function App() {
     setError(""); setBaseline(null); setReport(null);
     setLive([]); setPLabel("Starting agents…"); setView("processing");
     try {
-      const hr = await fetch("/api/health");
-      if (hr.ok) { const h = await hr.json(); setMock(h.mockMode); }
+      const hr = await fetch(`${API_BASE}/api/health`);
+      if (hr.ok) { const h = await hr.json(); setMock(h.database?.mockMode ?? h.mockMode); }
 
-      const baselineP = fetch("/api/baseline", {
+      const baselineP = fetch(`${API_BASE}/api/baseline`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(merchantData),
       });
 
-      const res = await fetch("/api/underwrite/stream", {
+      const res = await fetch(`${API_BASE}/api/underwrite/stream`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(merchantData),
       });
@@ -346,7 +431,7 @@ export default function App() {
             {isMock !== null && (
               <span className={`api-badge ${isMock ? "api-badge-mock" : "api-badge-live"}`}>
                 <span className="api-badge-dot" />
-                {isMock ? "Mock mode" : "Live AI"}
+                {isMock ? "Mock mode" : "Live · Bedrock + DynamoDB"}
               </span>
             )}
             {view === "report" && (
@@ -398,18 +483,26 @@ export default function App() {
 
                 {formMode === "demo" && (
                   <>
+                    {/* DynamoDB badge — shows merchants are loaded from live database */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, fontSize: 10, color: "var(--text-muted)" }}>
+                      <Database size={10} color="#06b6d4" />
+                      Merchants loaded from DynamoDB · {merchants.length} available
+                    </div>
                     <div className="demo-grid">
-                      {([
-                        { key: "school",     Icon: School,      riskLabel: "Low risk",      variant: "badge-green" },
-                        { key: "naturals",   Icon: ShoppingBag, riskLabel: "Moderate risk", variant: "badge-yellow" },
-                        { key: "freelancer", Icon: Briefcase,   riskLabel: "High risk",     variant: "badge-red" },
-                      ] as const).map(({ key, Icon: CardIcon, riskLabel, variant }) => {
-                        const m = DEMO_MERCHANTS[key];
+                      {merchants.map((m) => {
+                        const riskMap: Record<string, { Icon: React.ComponentType<{size?:number}>, riskLabel: string, variant: string }> = {
+                          "School":                    { Icon: School,          riskLabel: "Seasonal revenue",  variant: "badge-yellow" },
+                          "Natural Skin & Hair Products": { Icon: ShoppingBag, riskLabel: "Moderate risk",    variant: "badge-yellow" },
+                          "Freelancer":                { Icon: Briefcase,       riskLabel: "High risk",        variant: "badge-red"    },
+                          "Food & Beverage":           { Icon: UtensilsCrossed, riskLabel: "Strong approval",  variant: "badge-green"  },
+                        };
+                        const meta = riskMap[m.businessType] ?? { Icon: Briefcase, riskLabel: "Custom", variant: "badge-yellow" };
+                        const CardIcon = meta.Icon;
                         return (
                           <div
-                            key={key}
-                            className={`demo-card${selectedDemo === key ? " selected" : ""}`}
-                            onClick={() => handleDemoSelect(key)}
+                            key={m.id}
+                            className={`demo-card${selectedDemo === m.id ? " selected" : ""}`}
+                            onClick={() => handleDemoSelect(m)}
                           >
                             <div className="demo-card-header">
                               <div className="demo-icon"><CardIcon size={14} /></div>
@@ -418,11 +511,42 @@ export default function App() {
                                 <div className="demo-card-type">{m.businessType}</div>
                               </div>
                             </div>
-                            <span className={`badge ${variant}`}>{riskLabel}</span>
+                            <span className={`badge ${meta.variant}`}>{meta.riskLabel}</span>
                           </div>
                         );
                       })}
                     </div>
+
+                    {/* Decision history — reads from DynamoDB */}
+                    <div
+                      style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--text-muted)", userSelect: "none" }}
+                      onClick={toggleHistory}
+                    >
+                      <History size={11} />
+                      Past decisions for {merchantData.id}
+                      <ChevronDown size={11} style={{ transform: historyOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                    </div>
+                    {historyOpen && (
+                      <div style={{ marginTop: 6, borderRadius: 8, background: "var(--surface-raised)", padding: "8px 10px" }}>
+                        {historyLoading && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>Loading from DynamoDB…</div>}
+                        {!historyLoading && history.length === 0 && (
+                          <div style={{ fontSize: 10, color: "var(--text-muted)" }}>No past decisions — run underwriting to create one.</div>
+                        )}
+                        {!historyLoading && history.map((h, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: i < history.length - 1 ? "1px solid var(--border)" : "none", fontSize: 10 }}>
+                            <span style={{ color: h.decision === "approved" ? "#22c55e" : h.decision === "rejected" ? "#ef4444" : "#f59e0b", fontWeight: 600 }}>
+                              {h.decision}
+                            </span>
+                            {h.approvedAmountNaira && h.approvedAmountNaira !== "₦0" && (
+                              <span style={{ color: "var(--text-secondary)" }}>{h.approvedAmountNaira}</span>
+                            )}
+                            <span style={{ marginLeft: "auto", color: "var(--text-muted)", fontFamily: "monospace" }}>
+                              {h.requestId.slice(0, 8)}…
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -517,7 +641,7 @@ export default function App() {
               <div className="comparison-strip">
                 <div className="comparison-strip-header">
                   <Info size={13} color="var(--text-3)" />
-                  <span className="comparison-strip-title">Track 3 — single agent vs. multi-agent</span>
+                  <span className="comparison-strip-title">Track 2 — single-agent baseline vs. multi-agent debate</span>
                   <span className="comparison-strip-sub">same data, same merchant</span>
                 </div>
                 <div className="comparison-grid">
@@ -659,111 +783,108 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Debate Ledger */}
+                {/* Debate Ledger — collapsible */}
                 {report.debateLedger && (
                   <div className="score-card">
-                    <div className="score-card-header">
+                    <div className="score-card-header" onClick={toggleLedger} style={{ cursor: "pointer", userSelect: "none" }}>
                       <div className="score-card-title"><Scale size={14} color="#f59e0b" /> Debate ledger</div>
-                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: "auto" }}>
-                        {report.debateLedger.resolvedClaims}/{report.debateLedger.totalClaims} claims resolved
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                          {report.debateLedger.resolvedClaims}/{report.debateLedger.totalClaims} resolved ·{" "}
+                          <span style={{ color: "#22c55e" }}>{report.debateLedger.claimsConcededByRisk} conceded</span>
+                          {report.debateLedger.claimsUphelByRisk > 0 && <span style={{ color: "#ef4444" }}> · {report.debateLedger.claimsUphelByRisk} upheld</span>}
+                        </span>
+                        <ChevronDown size={12} color="var(--text-muted)" style={{ transform: ledgerOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                       </div>
                     </div>
-                    <div className="score-rows" style={{ marginBottom: 8 }}>
-                      <div className="score-row"><span className="score-row-label">Risk conceded</span><span className="score-row-value" style={{ color: "#22c55e" }}>{report.debateLedger.claimsConcededByRisk}</span></div>
-                      <div className="score-row"><span className="score-row-label">Risk upheld</span><span className="score-row-value" style={{ color: "#ef4444" }}>{report.debateLedger.claimsUphelByRisk}</span></div>
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 4 }}>
-                      {report.debateLedger.negotiationSummary}
-                    </div>
-                    {report.debateLedger.claims.map((c) => (
-                      <div key={c.claimId} style={{
-                        marginTop: 8, padding: "8px 10px", borderRadius: 6,
-                        background: "var(--surface-raised)",
-                        borderLeft: `3px solid ${
-                          c.resolution === "claim_withdrawn" || c.resolution === "reframed_as_sector_normal" ? "#22c55e"
-                          : c.resolution === "risk_concern_upheld" ? "#ef4444"
-                          : c.resolution === "compromise_condition_set" ? "#f59e0b"
-                          : "var(--border)"
-                        }`
-                      }}>
-                        <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 3 }}>
-                          {c.claimId.toUpperCase()} ·{" "}
-                          <span style={{ color:
-                            c.resolution === "claim_withdrawn" || c.resolution === "reframed_as_sector_normal" ? "#22c55e"
-                            : c.resolution === "risk_concern_upheld" ? "#ef4444"
-                            : "#f59e0b"
-                          }}>
-                            {c.resolution.replace(/_/g, " ")}
-                          </span>
+                    {ledgerOpen && (
+                      <>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5, margin: "8px 0" }}>
+                          {report.debateLedger.negotiationSummary}
                         </div>
-                        <div style={{ fontSize: 11, color: "var(--text-primary)", marginBottom: 4 }}>{c.claim}</div>
-                        <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{c.impact}</div>
-                      </div>
-                    ))}
+                        {report.debateLedger.claims.map((c) => (
+                          <div key={c.claimId} style={{
+                            marginTop: 6, padding: "7px 10px", borderRadius: 6,
+                            background: "var(--surface-raised)",
+                            borderLeft: `3px solid ${
+                              c.resolution === "claim_withdrawn" || c.resolution === "reframed_as_sector_normal" ? "#22c55e"
+                              : c.resolution === "risk_concern_upheld" ? "#ef4444"
+                              : c.resolution === "compromise_condition_set" ? "#f59e0b"
+                              : "var(--border)"
+                            }`
+                          }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 2 }}>
+                              {c.claimId.toUpperCase()} · <span style={{ color: c.resolution === "claim_withdrawn" || c.resolution === "reframed_as_sector_normal" ? "#22c55e" : c.resolution === "risk_concern_upheld" ? "#ef4444" : "#f59e0b" }}>{c.resolution.replace(/_/g, " ")}</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--text-primary)", marginBottom: 3 }}>{c.claim}</div>
+                            <div style={{ fontSize: 9, color: "var(--text-muted)" }}>{c.impact}</div>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
                 )}
 
-                {/* Decision Delta */}
+                {/* Decision Delta — collapsible */}
                 {report.decisionDelta && (
                   <div className="score-card">
-                    <div className="score-card-header">
+                    <div className="score-card-header" onClick={toggleDelta} style={{ cursor: "pointer", userSelect: "none" }}>
                       <div className="score-card-title"><GitCompare size={14} color="#6366f1" /> Decision delta</div>
-                      <div style={{
-                        fontSize: 10, padding: "2px 7px", borderRadius: 99,
-                        background: report.decisionDelta.decisionChanged ? "rgba(99,102,241,0.15)" : "rgba(34,197,94,0.15)",
-                        color: report.decisionDelta.decisionChanged ? "#a5b4fc" : "#86efac",
-                        marginLeft: "auto",
-                      }}>
-                        {report.decisionDelta.decisionChanged ? "decision changed" : "same decision"}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                        <span style={{
+                          fontSize: 10, padding: "2px 7px", borderRadius: 99,
+                          background: report.decisionDelta.decisionChanged ? "rgba(99,102,241,0.15)" : "rgba(34,197,94,0.15)",
+                          color: report.decisionDelta.decisionChanged ? "#a5b4fc" : "#86efac",
+                        }}>
+                          {report.decisionDelta.baselineDecision} → {report.decisionDelta.multiAgentDecision}
+                        </span>
+                        <ChevronDown size={12} color="var(--text-muted)" style={{ transform: deltaOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
                       </div>
                     </div>
-                    <div className="score-rows" style={{ marginBottom: 8 }}>
-                      <div className="score-row">
-                        <span className="score-row-label">Baseline</span>
-                        <span className="score-row-value" style={{
-                          color: report.decisionDelta.baselineDecision === "approved" ? "#22c55e" : report.decisionDelta.baselineDecision === "rejected" ? "#ef4444" : "#f59e0b"
-                        }}>{report.decisionDelta.baselineDecision}</span>
-                      </div>
-                      <div className="score-row">
-                        <span className="score-row-label">Multi-agent</span>
-                        <span className="score-row-value" style={{
-                          color: report.decisionDelta.multiAgentDecision === "approved" ? "#22c55e" : report.decisionDelta.multiAgentDecision === "rejected" ? "#ef4444" : "#f59e0b"
-                        }}>{report.decisionDelta.multiAgentDecision}</span>
-                      </div>
-                      <div className="score-row"><span className="score-row-label">Baseline time</span><span className="score-row-value">{report.decisionDelta.baselineExecutionTime}</span></div>
-                      <div className="score-row"><span className="score-row-label">Multi-agent time</span><span className="score-row-value">{report.decisionDelta.multiAgentExecutionTime}</span></div>
-                    </div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>{report.decisionDelta.reason}</div>
+                    {deltaOpen && (
+                      <>
+                        <div className="score-rows" style={{ margin: "8px 0" }}>
+                          <div className="score-row"><span className="score-row-label">Baseline time</span><span className="score-row-value">{report.decisionDelta.baselineExecutionTime}</span></div>
+                          <div className="score-row"><span className="score-row-label">Multi-agent time</span><span className="score-row-value">{report.decisionDelta.multiAgentExecutionTime}</span></div>
+                        </div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.5 }}>{report.decisionDelta.reason}</div>
+                      </>
+                    )}
                   </div>
                 )}
 
-                {/* Observability */}
+                {/* Observability — collapsible */}
                 {report.observability && (
                   <div className="score-card">
-                    <div className="score-card-header">
+                    <div className="score-card-header" onClick={toggleObs} style={{ cursor: "pointer", userSelect: "none" }}>
                       <div className="score-card-title"><Activity size={14} color="#06b6d4" /> Observability</div>
-                      {report.observability.mockMode && (
-                        <div style={{ fontSize: 10, padding: "2px 7px", borderRadius: 99, background: "rgba(245,158,11,0.15)", color: "#fcd34d", marginLeft: "auto" }}>mock mode</div>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                          {report.observability.totalBedrockCalls}q · {report.observability.totalMcpCalls}m · {report.observability.agentTimings.length} stages
+                          {report.observability.mockMode && <span style={{ color: "#fcd34d" }}> · mock</span>}
+                        </span>
+                        <ChevronDown size={12} color="var(--text-muted)" style={{ transform: obsOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+                      </div>
                     </div>
-                    <div className="score-rows">
-                      <div className="score-row"><span className="score-row-label">Request ID</span><span className="score-row-value" style={{ fontSize: 9, fontFamily: "monospace" }}>{report.observability.requestId.slice(0, 16)}…</span></div>
-                      <div className="score-row"><span className="score-row-label">Model</span><span className="score-row-value">{report.observability.model}</span></div>
-                      <div className="score-row"><span className="score-row-label">Qwen calls</span><span className="score-row-value">{report.observability.totalQwenCalls}</span></div>
-                      <div className="score-row"><span className="score-row-label">MCP calls</span><span className="score-row-value">{report.observability.totalMcpCalls}</span></div>
-                      <div className="score-row"><span className="score-row-label">Agent stages</span><span className="score-row-value">{report.observability.agentTimings.length}</span></div>
-                      <div className="score-row"><span className="score-row-label">Debate round</span><span className="score-row-value" style={{ color: report.observability.debateRoundFired ? "#22c55e" : "var(--text-muted)" }}>{report.observability.debateRoundFired ? "fired" : "skipped"}</span></div>
-                    </div>
-                    <div style={{ marginTop: 8 }}>
-                      {report.observability.agentTimings.map((t) => (
-                        <div key={t.agentName} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "var(--text-muted)", padding: "2px 0", borderBottom: "1px solid var(--border)" }}>
-                          <span style={{ flex: 1 }}>{t.agentName}</span>
-                          <span style={{ color: "var(--text-secondary)", minWidth: 50, textAlign: "right" }}>{t.durationMs}ms</span>
-                          <span style={{ color: "#06b6d4", minWidth: 40, textAlign: "right" }}>{t.qwenCallCount}q</span>
-                          <span style={{ color: "#a78bfa", minWidth: 40, textAlign: "right" }}>{t.mcpCallCount}m</span>
+                    {obsOpen && (
+                      <>
+                        <div className="score-rows" style={{ margin: "8px 0" }}>
+                          <div className="score-row"><span className="score-row-label">Request ID</span><span className="score-row-value" style={{ fontSize: 9, fontFamily: "monospace" }}>{report.observability.requestId.slice(0, 16)}…</span></div>
+                          <div className="score-row"><span className="score-row-label">Model</span><span className="score-row-value">{report.observability.model}</span></div>
+                          <div className="score-row"><span className="score-row-label">Debate round</span><span className="score-row-value" style={{ color: report.observability.debateRoundFired ? "#22c55e" : "var(--text-muted)" }}>{report.observability.debateRoundFired ? "fired" : "skipped"}</span></div>
                         </div>
-                      ))}
-                    </div>
+                        <div>
+                          {report.observability.agentTimings.map((t) => (
+                            <div key={t.agentName} style={{ display: "flex", fontSize: 10, color: "var(--text-muted)", padding: "2px 0", borderBottom: "1px solid var(--border)", gap: 6 }}>
+                              <span style={{ flex: 1 }}>{t.agentName}</span>
+                              <span style={{ color: "var(--text-secondary)" }}>{t.durationMs}ms</span>
+                              <span style={{ color: "#06b6d4" }}>{t.bedrockCallCount}b</span>
+                              <span style={{ color: "#a78bfa" }}>{t.mcpCallCount}m</span>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
 

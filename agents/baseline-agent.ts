@@ -7,7 +7,7 @@
  */
 
 import { ZalyxMerchantSnapshot, BaselineReport } from "../utils/types";
-import { qwenClient } from "../utils/qwen-client";
+import { bedrockClient } from "../utils/bedrock-client";
 
 const fmt = (n: number) =>
   `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -58,7 +58,7 @@ Based on this data, provide:
 Keep your response under 200 words.
 `;
 
-    const response = await qwenClient.analyzeWithContext(
+    const response = await bedrockClient.analyzeWithContext(
       prompt,
       JSON.stringify(snapshot, null, 2),
       this.agentName

@@ -5,7 +5,7 @@ import {
   UnderwritingReport,
   IntermediateReport,
 } from "../utils/types";
-import { qwenClient, ISSUE_UNDERWRITING_DECISION_TOOL } from "../utils/qwen-client";
+import { bedrockClient, ISSUE_UNDERWRITING_DECISION_TOOL } from "../utils/bedrock-client";
 
 const fmt = (n: number) =>
   `₦${n.toLocaleString("en-NG", { maximumFractionDigits: 0 })}`;
@@ -68,12 +68,14 @@ As the final reviewer:
 Write this for two audiences: the underwriting team (technical detail) and the merchant (plain English). Keep it under 200 words.
 `;
 
-    // Function calling — Qwen issues the decision via issue_underwriting_decision tool
+    // Function calling — force Bedrock to call issue_underwriting_decision (no text-only fallthrough)
     // This is the "money shot": what_debate_resolved explicitly names what multi-agent caught
-    const response = await qwenClient.chatWithTools(
+    const response = await bedrockClient.chatWithTools(
       [{ role: "user", content: `Context:\n${JSON.stringify({ report, snapshot }, null, 2)}\n\nAnalysis request:\n${prompt}` }],
       [ISSUE_UNDERWRITING_DECISION_TOOL],
-      this.agentName
+      this.agentName,
+      undefined,
+      "issue_underwriting_decision"
     );
 
     const tc = response.toolCall?.name === "issue_underwriting_decision"
@@ -139,9 +141,9 @@ Write this for two audiences: the underwriting team (technical detail) and the m
     // If Zalyx system already says eligible + agents agree = approve
     if (snapshot.existingDecision?.eligible && health > 60 && risk < 50) return "approved";
 
-    // Standard logic
-    if (health > 65 && risk < 45) return "approved";
-    if (health > 45 && risk < 65) return "requires-clarification";
+    // Standard logic — risk < 65 covers moderate-risk merchants with strong health
+    if (health > 65 && risk < 65) return "approved";
+    if (health > 45 && risk < 75) return "requires-clarification";
     return "rejected";
   }
 

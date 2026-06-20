@@ -17,7 +17,7 @@ import { FinancingStructureAgent } from "../agents/financing-structure-agent";
 import { HumanReviewAgent } from "../agents/human-review-agent";
 import { BaselineAgent } from "../agents/baseline-agent";
 import { debateModerator } from "../agents/debate-moderator";
-import { qwenClient } from "../utils/qwen-client";
+import { bedrockClient } from "../utils/bedrock-client";
 
 export class AgentOrchestrator {
   private dataQualityAgent = new DataQualityAgent();
@@ -40,8 +40,8 @@ export class AgentOrchestrator {
     const startTime = Date.now();
     const debateTranscript: AgentDebateMessage[] = [];
     const agentTimings: AgentTiming[] = [];
-    qwenClient.resetCallCount();
-    let runningQwenCalls = 0;
+    bedrockClient.resetCallCount();
+    let runningBedrockCalls = 0;
 
     // Run baseline in parallel with Stage 1+2 for DecisionDelta (fire-and-forget)
     const baselinePromise = this.baselineAgent.evaluate(snapshot).catch(() => null);
@@ -53,13 +53,13 @@ export class AgentOrchestrator {
       fn: () => Promise<T>
     ): Promise<T> => {
       const t0 = Date.now();
-      const callsBefore = qwenClient.getCallCount();
+      const callsBefore = bedrockClient.getCallCount();
       const result = await fn();
-      const callsAfter = qwenClient.getCallCount();
+      const callsAfter = bedrockClient.getCallCount();
       const durationMs = Date.now() - t0;
-      const qwenCallCount = callsAfter - callsBefore;
-      agentTimings.push({ agentName, durationMs, qwenCallCount, mcpCallCount: mcpCalls });
-      runningQwenCalls = callsAfter;
+      const bedrockCallCount = callsAfter - callsBefore;
+      agentTimings.push({ agentName, durationMs, bedrockCallCount, mcpCallCount: mcpCalls });
+      runningBedrockCalls = callsAfter;
       return result;
     };
 
@@ -265,7 +265,7 @@ export class AgentOrchestrator {
         `Formal debate round: ${debating ? "fired — " + (debateLedger?.totalClaims ?? 0) + " claims negotiated" : "skipped — agents aligned"}`,
         `Murabaha policy engine: sale price ₦${humanReview.approvalAmount || "N/A"} from GTV`,
         `DebateLedger: ${debateLedger?.totalClaims ?? 0} structured claims with typed resolutions`,
-        `RunObservability: request ID, per-agent timing, Qwen + MCP call counts`,
+        `RunObservability: request ID, per-agent timing, Bedrock + MCP call counts`,
       ];
 
       const reason =
@@ -291,9 +291,9 @@ export class AgentOrchestrator {
 
     const observability: RunObservability = {
       requestId,
-      mockMode: qwenClient.mockMode,
-      model: process.env.QWEN_MODEL || "qwen-max",
-      totalQwenCalls: qwenClient.getCallCount(),
+      mockMode: bedrockClient.mockMode,
+      model: process.env.BEDROCK_MODEL_ID || "amazon.nova-pro-v1:0",
+      totalBedrockCalls: bedrockClient.getCallCount(),
       totalMcpCalls: agentTimings.reduce((s, t) => s + t.mcpCallCount, 0),
       agentTimings,
       parallelStages: ["Data Quality Agent", "Business Analysis Agent"],
@@ -301,7 +301,7 @@ export class AgentOrchestrator {
       stage4Skipped: likelyRejection,
     };
 
-    console.log(`\n📊 Observability: ${observability.totalQwenCalls} Qwen calls · ${observability.totalMcpCalls} MCP calls · ${agentTimings.length} stages · requestId=${requestId}`);
+    console.log(`\n📊 Observability: ${observability.totalBedrockCalls} Bedrock calls · ${observability.totalMcpCalls} MCP calls · ${agentTimings.length} stages · requestId=${requestId}`);
 
     return {
       merchantId: snapshot.id,

@@ -3,7 +3,7 @@ import {
   DataQualityResult,
   AgentDebateMessage,
 } from "../utils/types";
-import { qwenClient, SUBMIT_DATA_QUALITY_RESULT_TOOL } from "../utils/qwen-client";
+import { bedrockClient, SUBMIT_DATA_QUALITY_RESULT_TOOL } from "../utils/bedrock-client";
 import { mcpClient } from "../utils/mcp-client";
 
 export class DataQualityAgent {
@@ -72,8 +72,8 @@ As a data quality auditor:
 Be concise and direct. Underwriters are reading this.
 `;
 
-    // Function calling — Qwen returns structured quality assessment
-    const response = await qwenClient.chatWithTools(
+    // Function calling — Bedrock returns structured quality assessment
+    const response = await bedrockClient.chatWithTools(
       [{ role: "user", content: `Merchant data:\n${JSON.stringify(snapshot, null, 2)}\n\nAudit request:\n${prompt}` }],
       [SUBMIT_DATA_QUALITY_RESULT_TOOL],
       this.agentName
