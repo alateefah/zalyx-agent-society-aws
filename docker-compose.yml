@@ -5,7 +5,7 @@ services:
     build: .
     container_name: zalyx-agent-society
     ports:
-      - "3001:3001"
+      - "80:3001"
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
