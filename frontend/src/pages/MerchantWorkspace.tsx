@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useLocation, Link } from "react-router-dom";
 import { Zap, ExternalLink } from "lucide-react";
 
 import { Header }           from "../components/layout/Header";
@@ -26,7 +26,10 @@ const DECISION_COLOR: Record<string, string> = {
 export function MerchantWorkspace() {
   const { merchantId } = useParams<{ merchantId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const isMock = useIsMock();
+  // Custom merchants passed via navigation state (not persisted on the backend)
+  const passedMerchant = (location.state as { merchant?: ZalyxMerchantSnapshot } | null)?.merchant ?? null;
 
   const [merchant, setMerchant] = useState<ZalyxMerchantSnapshot | null>(null);
   const [summaries, setSummaries] = useState<DecisionSummary[]>([]);
@@ -43,10 +46,10 @@ export function MerchantWorkspace() {
     let cancelled = false;
     (async () => {
       try {
-        const [m, s] = await Promise.all([
-          fetchMerchantById(merchantId),
-          fetchDecisionSummaries(merchantId),
-        ]);
+        // Custom merchants (e.g. DEMO-LIVE) are passed via navigation state and
+        // never persisted on the backend — use state directly, skip the API call.
+        const m = passedMerchant ?? await fetchMerchantById(merchantId);
+        const s = await fetchDecisionSummaries(merchantId).catch(() => [] as DecisionSummary[]);
         if (cancelled) return;
         setMerchant(m);
         setSummaries(s);
@@ -58,7 +61,7 @@ export function MerchantWorkspace() {
       }
     })();
     return () => { cancelled = true; };
-  }, [merchantId, retryCount]);
+  }, [merchantId, retryCount]); // passedMerchant intentionally omitted — stable on mount
 
   const handleRun = async () => {
     if (!merchant) return;

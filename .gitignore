@@ -11,6 +11,7 @@ package-lock.json
 # Build output
 dist/
 build/
+frontend/dist/
 
 # IDE
 .vscode/
@@ -33,7 +34,15 @@ coverage/
 # Temporary
 tmp/
 temp/
-.env
+ziZ8qunH
 
 # Benchmark generated output (re-run `npm run benchmark` to regenerate)
 benchmark/results.json
+
+# Deployment artefacts — generated locally, not source
+*.zip
+zalyx-architecture.png
+
+# Hackathon / submission docs — keep locally, not in repo
+DEMO_SCRIPT.md
+SUBMISSION.md

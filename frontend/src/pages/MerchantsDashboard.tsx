@@ -37,7 +37,8 @@ export function MerchantsDashboard() {
   const handleAddCustom = () => {
     if (!pendingCustom) return;
     addMerchant(pendingCustom);
-    navigate(`/merchants/${pendingCustom.id}`);
+    // Pass merchant via state — backend won't have it, MerchantWorkspace uses state as fallback
+    navigate(`/merchants/${pendingCustom.id}`, { state: { merchant: pendingCustom } });
   };
 
   return (

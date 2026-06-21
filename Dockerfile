@@ -1,35 +1,23 @@
-# ── Stage 1: Build React frontend ─────────────────────────────────────────────
-FROM node:20-alpine AS frontend-builder
-WORKDIR /app/frontend
-# yarn is pre-installed in node:20-alpine
-COPY frontend/package.json frontend/yarn.lock ./
-RUN yarn install --frozen-lockfile
-COPY frontend/ .
-RUN yarn build
+# Pre-built deployment image — compile TypeScript and React LOCALLY before zipping.
+# This keeps the EB Docker build to a single `yarn install --production` (~2 min vs 30+ min).
+#
+# Build locally before creating the zip:
+#   yarn tsc
+#   cd frontend && yarn build && cd ..
+#   zip -r zalyx-deploy.zip Dockerfile docker-compose.yml package.json yarn.lock dist/ frontend/dist/ data/
 
-# ── Stage 2: Compile TypeScript backend ───────────────────────────────────────
-FROM node:20-alpine AS backend-builder
+FROM node:20-alpine
 WORKDIR /app
-# yarn is pre-installed in node:20-alpine
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
-COPY . .
-RUN yarn tsc
-
-# ── Stage 3: Production image ─────────────────────────────────────────────────
-FROM node:20-alpine AS production
-WORKDIR /app
-# yarn is pre-installed in node:20-alpine
 
 # Production deps only
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --production
 
-# Compiled backend
-COPY --from=backend-builder /app/dist ./dist
+# Pre-compiled backend (TypeScript → JS, built locally via `yarn tsc`)
+COPY dist/ ./dist/
 
-# Built frontend (served as static files by Express)
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Pre-built frontend (Vite output, built locally via `cd frontend && yarn build`)
+COPY frontend/dist/ ./frontend/dist/
 
 # Merchant snapshot data (anonymized demo merchants)
 COPY data/ ./data/
@@ -37,7 +25,6 @@ COPY data/ ./data/
 EXPOSE 3001
 ENV NODE_ENV=production
 
-# Healthcheck — Alibaba Cloud load balancer / ECS can use this
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://localhost:3001/api/health || exit 1
 
