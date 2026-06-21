@@ -70,9 +70,9 @@ Bedrock returns `stopReason: "tool_use"` with a `toolUse` block — the `input` 
 Two tables, provisioned automatically on first boot:
 
 - `zalyx-merchants` (partition key: `id`) — merchant snapshots, seeded from JSON on first run
-- `zalyx-decisions` (partition key: `merchantId`, sort key: `requestId`) — full `UnderwritingReport` blobs, newest first
+- `zalyx-decisions` (partition key: `merchantId`, sort key: `requestId`) — full `UnderwritingReport` audit records
 
-Every completed underwriting run is persisted to DynamoDB. The `/api/decisions/:merchantId` endpoint serves the decision history. Tables use `PAY_PER_REQUEST` billing — no capacity planning required.
+Every completed underwriting run is persisted to DynamoDB. The merchant workspace reads lightweight history summaries, while `/api/merchants/:merchantId/decisions/:requestId` retrieves one complete report with an O(1) composite-key lookup. A `decision-index` GSI supports cross-merchant outcome queries. Tables use `PAY_PER_REQUEST` billing — no capacity planning required.
 
 ### MCP integration
 

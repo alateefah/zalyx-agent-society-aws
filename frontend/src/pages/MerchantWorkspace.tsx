@@ -61,7 +61,7 @@ export function MerchantWorkspace() {
       }
     })();
     return () => { cancelled = true; };
-  }, [merchantId, retryCount]); // passedMerchant intentionally omitted — stable on mount
+  }, [merchantId, retryCount, passedMerchant]);
 
   const handleRun = async () => {
     if (!merchant) return;

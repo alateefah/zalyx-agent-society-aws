@@ -41,7 +41,7 @@ npm run dev
 - API: http://localhost:3001
 - UI: http://localhost:5173
 
-DynamoDB tables (`zalyx-merchants`, `zalyx-decisions`) are created automatically on first boot and seeded with the three demo merchants.
+DynamoDB tables (`zalyx-merchants`, `zalyx-decisions`) are created automatically on first boot and seeded with five demo snapshots: four benchmark merchants and one custom video fixture.
 
 ## What to expect
 

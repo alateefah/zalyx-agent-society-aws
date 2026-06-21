@@ -166,7 +166,7 @@ yarn dev
 - Backend API: http://localhost:3001
 - Frontend UI: http://localhost:5173
 
-DynamoDB tables are created automatically on first boot and seeded with the four demo merchants.
+DynamoDB tables are created automatically on first boot and seeded with five demo snapshots: four benchmark merchants and one custom video fixture.
 
 ---
 
@@ -176,9 +176,9 @@ Four real anonymized Zalyx merchants with different risk profiles:
 
 | ID | Business | Outcome | Notes |
 |---|---|---|---|
-| ZALYX-004 | Lagos Kitchen Co. (F&B) | **Approved** ₦500k | 6 months of consecutive revenue growth, Tier A |
-| ZALYX-001 | Bright Future Academy (School) | **Approved** ₦250k | Debate round surfaces term-fee seasonality as non-risk |
-| ZALYX-002 | GlowUp Beauty (Skincare) | **Requires clarification** | Low GTV but strong collection rate — borderline case |
+| ZALYX-004 | Lagos Kitchen Co. (F&B) | **Approved** | Strong multi-month revenue trend, Tier A |
+| ZALYX-001 | Bright Future Academy (School) | **Approved with conditions** | Debate round contextualises term-fee seasonality |
+| ZALYX-002 | GlowUp Beauty (Skincare) | **Requires clarification** | 72% revenue decline and 2 active days fall below the sector floor |
 | ZALYX-003 | Apex Creative Services (Freelancer) | **Rejected** | Single-month concentration, zero recent activity, 75% receivables uncollected |
 
 ### Benchmark Results (`benchmark/results.md`)
@@ -188,12 +188,12 @@ Four real anonymized Zalyx merchants with different risk profiles:
 | Merchants benchmarked | 4 |
 | Decisions that differed (baseline vs multi-agent) | **3/4** |
 | Debate round fired | **2/4** merchants |
-| Structured risk factors surfaced | 12 |
+| Structured risk factors surfaced | 16 |
 | Avg structured output completeness | **100%** |
 | Avg actionability score | **100/100** |
 | Avg baseline latency | 0.5s |
 | Avg multi-agent latency | 5.6s |
-| Bedrock tool calls per run | 8 (all 5 agents) |
+| Bedrock tool calls per run | 5–8 (varies by debate and stage skipping) |
 | MCP calls per run | 3 (CBN + benchmarks + default rate) |
 
 Run: `yarn benchmark`
@@ -217,8 +217,11 @@ Run the full 5-agent debate with **live SSE streaming**. Persists the completed 
 ### `POST /api/baseline`
 Run the single-agent baseline (for comparison).
 
-### `GET /api/decisions/:merchantId`
-Retrieve all past decisions for a merchant from DynamoDB, newest first.
+### `GET /api/merchants/:merchantId/decisions`
+Retrieve lightweight decision summaries for a merchant from DynamoDB, newest first.
+
+### `GET /api/merchants/:merchantId/decisions/:requestId`
+Retrieve one complete underwriting report with an O(1) DynamoDB composite-key lookup.
 
 ### `GET /api/health`
 ```json
