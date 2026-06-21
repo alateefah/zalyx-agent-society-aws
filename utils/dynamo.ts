@@ -154,7 +154,7 @@ async function ensureDecisionGsi(client: DynamoDBClient): Promise<void> {
 // ── Seed from local JSON snapshots ───────────────────────────────────────────
 
 async function seedMerchantsIfEmpty(docClient: DynamoDBDocumentClient): Promise<void> {
-  const snapshotsDir = path.join(__dirname, "../../data/snapshots");
+  const snapshotsDir = path.join(process.cwd(), "data/snapshots");
   if (!fs.existsSync(snapshotsDir)) return;
 
   const files = fs.readdirSync(snapshotsDir).filter((f) => f.endsWith(".json"));
@@ -242,7 +242,7 @@ export async function initDynamo(): Promise<void> {
 /** Load a merchant snapshot by ID. Falls back to local JSON in mock mode. */
 export async function getMerchantSnapshot(id: string): Promise<ZalyxMerchantSnapshot | null> {
   if (dynamoMockMode) {
-    const filePath = path.join(__dirname, `../../data/snapshots/${id}.json`);
+    const filePath = path.join(process.cwd(), `data/snapshots/${id}.json`);
     if (!fs.existsSync(filePath)) return null;
     return JSON.parse(fs.readFileSync(filePath, "utf-8")) as ZalyxMerchantSnapshot;
   }
@@ -256,7 +256,7 @@ export async function getMerchantSnapshot(id: string): Promise<ZalyxMerchantSnap
 /** List all merchant snapshots. */
 export async function listMerchants(): Promise<ZalyxMerchantSnapshot[]> {
   if (dynamoMockMode) {
-    const snapshotsDir = path.join(__dirname, "../../data/snapshots");
+    const snapshotsDir = path.join(process.cwd(), "data/snapshots");
     if (!fs.existsSync(snapshotsDir)) return [];
     return fs
       .readdirSync(snapshotsDir)

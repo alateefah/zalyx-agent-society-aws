@@ -166,28 +166,29 @@ yarn dev
 - Backend API: http://localhost:3001
 - Frontend UI: http://localhost:5173
 
-DynamoDB tables are created automatically on first boot and seeded with the three demo merchants.
+DynamoDB tables are created automatically on first boot and seeded with the four demo merchants.
 
 ---
 
 ## Demo merchants
 
-Three real anonymized Zalyx merchants with different risk profiles:
+Four real anonymized Zalyx merchants with different risk profiles:
 
-| ID | Business type | Baseline | Multi-agent |
+| ID | Business | Outcome | Notes |
 |---|---|---|---|
-| ZALYX-001 | School | requires-clarification | **Approved** — debate surfaces term-fee seasonality |
-| ZALYX-002 | Natural skin & hair | requires-clarification | **Approved** — MCP sector benchmarks contextualise low GTV |
-| ZALYX-003 | Freelancer | requires-clarification | **Approved** — high sector default rate (23.6%) covenanted into terms |
+| ZALYX-004 | Lagos Kitchen Co. (F&B) | **Approved** ₦500k | 6 months of consecutive revenue growth, Tier A |
+| ZALYX-001 | Bright Future Academy (School) | **Approved** ₦250k | Debate round surfaces term-fee seasonality as non-risk |
+| ZALYX-002 | GlowUp Beauty (Skincare) | **Requires clarification** | Low GTV but strong collection rate — borderline case |
+| ZALYX-003 | Apex Creative Services (Freelancer) | **Rejected** | Single-month concentration, zero recent activity, 75% receivables uncollected |
 
 ### Benchmark Results (`benchmark/results.md`)
 
 | Metric | Value |
 |---|---|
-| Merchants benchmarked | 3 |
-| Decisions that differed (baseline vs multi-agent) | **3/3** |
-| Debate round fired | **3/3** merchants |
-| Structured risk factors surfaced | 9 |
+| Merchants benchmarked | 4 |
+| Decisions that differed (baseline vs multi-agent) | **3/4** |
+| Debate round fired | **2/4** merchants |
+| Structured risk factors surfaced | 12 |
 | Avg structured output completeness | **100%** |
 | Avg actionability score | **100/100** |
 | Avg baseline latency | 0.5s |
